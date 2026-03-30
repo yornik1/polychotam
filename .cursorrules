@@ -1,0 +1,33 @@
+# Polychotam — cursor rules
+
+## Проект
+NestJS-сервис для работы с Polymarket: сбор маркетов, обработка сделок, расчёт P&L, очередь задач и уведомления в Telegram.
+
+## Стек
+- NestJS + TypeScript strict
+- PostgreSQL + TypeORM
+- Redis + BullMQ
+- WebSockets (NestJS WS)
+- Telegram через nestjs-telegraf
+- Docker Compose для локальной среды
+
+## Базовые правила кода
+- Никогда не использовать `any`, всегда задавать строгие типы
+- Env-переменные читать только через `ConfigService` (`getOrThrow` для обязательных)
+- Каждый модуль изолирован и импортирует только нужные зависимости
+- Для логирования использовать `Logger` из NestJS, не `console.log`
+- Комментарии в коде писать на русском
+
+## Структура модулей
+- `src/markets` — маркеты Polymarket
+- `src/trades` — входящие сделки
+- `src/wallets` — кошельки и P&L
+- `src/queue` — BullMQ producers/consumers
+- `src/polymarket` — WebSocket-клиент к Polymarket CLOB API
+- `src/telegram` — Telegram-бот
+- `src/common` — shared utils/guards/interceptors
+
+## MCP и Skills
+- Для актуальной документации библиотек использовать MCP Context7
+- Перед архитектурными изменениями сверяться с `docs/PROJECT_STRUCTURE.md`
+- При создании новых правил добавлять их в `.cursor/rules/*.mdc`
