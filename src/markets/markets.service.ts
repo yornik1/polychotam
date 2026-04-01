@@ -1,4 +1,113 @@
-import { Injectable } from "@nestjs/common";
+import {
+  BadGatewayException,
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { mapPolymarketMarket } from "./market.mapper.js";
+import { MarketsResponseDto } from "./dto/markets-response.dto.js";
+import {
+  PolymarketInvalidPayloadError,
+  PolymarketHttpClient,
+  PolymarketHttpTimeoutError,
+  PolymarketUpstreamStatusError,
+} from "../polymarket/polymarket-http.client.js";
+import { PolymarketMarketRaw } from "../polymarket/dto/polymarket-market.raw.js";
 
 @Injectable()
-export class MarketsService {}
+export class MarketsService {
+  private readonly logger = new Logger(MarketsService.name);
+
+  constructor(
+    @Inject(PolymarketHttpClient)
+    private readonly polymarketHttpClient: Pick<PolymarketHttpClient, "fetchMarkets">
+  ) {}
+
+  async getMarkets(): Promise<MarketsResponseDto> {
+    this.logger.log("Начинаю загрузку маркетов из Polymarket");
+
+    try {
+      const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
+      const data = this.mapRawMarkets(rawMarkets);
+      const response: MarketsResponseDto = {
+        data,
+        meta: {
+          source: "polymarket",
+          total: data.length,
+          fetchedAt: new Date().toISOString(),
+        },
+      };
+
+      this.logger.log(`Успешно получены маркеты из Polymarket: ${data.length}`);
+      return response;
+    } catch (error: unknown) {
+      this.rethrowAsHttpException(error);
+    }
+  }
+
+  private mapRawMarkets(rawMarkets: PolymarketMarketRaw[]): MarketsResponseDto["data"] {
+    if (!Array.isArray(rawMarkets)) {
+      throw new PolymarketInvalidPayloadError("Polymarket markets payload is not an array");
+    }
+
+    return rawMarkets.map((rawMarket: PolymarketMarketRaw) => {
+      if (rawMarket === null || typeof rawMarket !== "object") {
+        throw new PolymarketInvalidPayloadError("Polymarket market item has invalid shape");
+      }
+
+      return mapPolymarketMarket(rawMarket);
+    });
+  }
+
+  private rethrowAsHttpException(error: unknown): never {
+    if (this.isServiceUnavailableError(error)) {
+      this.logger.warn(this.toLogMessage(error));
+      throw new ServiceUnavailableException("Polymarket временно недоступен");
+    }
+
+    if (this.isBadGatewayError(error)) {
+      this.logger.warn(this.toLogMessage(error));
+      throw new BadGatewayException("Polymarket вернул ошибку шлюза");
+    }
+
+    this.logger.error(this.toLogMessage(error), this.toLogStack(error));
+    throw new ServiceUnavailableException("Не удалось получить маркеты из Polymarket");
+  }
+
+  private isServiceUnavailableError(error: unknown): boolean {
+    if (error instanceof PolymarketHttpTimeoutError || error instanceof PolymarketInvalidPayloadError) {
+      return true;
+    }
+
+    if (error instanceof PolymarketUpstreamStatusError) {
+      return error.statusCode === 429 || error.statusCode >= 500;
+    }
+
+    return false;
+  }
+
+  private isBadGatewayError(error: unknown): boolean {
+    if (!(error instanceof PolymarketUpstreamStatusError)) {
+      return false;
+    }
+
+    return error.statusCode >= 400 && error.statusCode < 500 && error.statusCode !== 429;
+  }
+
+  private toLogMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return "Неизвестная ошибка при запросе маркетов из Polymarket";
+  }
+
+  private toLogStack(error: unknown): string | undefined {
+    if (error instanceof Error) {
+      return error.stack;
+    }
+
+    return undefined;
+  }
+}

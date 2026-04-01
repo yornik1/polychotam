@@ -17,7 +17,8 @@
     "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true,
     "types": [
-      "node"
+      "node",
+      "vitest/globals"
     ]
   },
   "include": [
