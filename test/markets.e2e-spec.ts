@@ -24,15 +24,15 @@ describe("GET /markets (e2e)", () => {
 
     fetchMarkets.mockResolvedValue([
       {
-        id: "market-1",
-        slug: "btc-above-100k",
+        condition_id: "0xmarket1",
+        market_slug: "btc-above-100k",
         question: "Will BTC be above $100k?",
-        outcomes: ["YES", "NO"],
+        tokens: [{ outcome: "YES" }, { outcome: "NO" }],
         active: true,
         closed: false,
         liquidity: "1500.5",
-        volume24h: 100,
-        endDate: "2026-12-31T23:59:59Z",
+        volume24hr: 100,
+        end_date_iso: "2026-12-31T23:59:59Z",
       },
     ]);
 

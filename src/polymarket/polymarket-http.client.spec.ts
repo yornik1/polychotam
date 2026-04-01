@@ -8,6 +8,23 @@ import {
   PolymarketUpstreamStatusError
 } from "./polymarket-http.client.js";
 
+const { getMarketsMock, clobClientConstructorMock } = vi.hoisted(() => ({
+  getMarketsMock: vi.fn<() => Promise<unknown>>(),
+  clobClientConstructorMock: vi.fn()
+}));
+
+vi.mock("@polymarket/clob-client", () => ({
+  ClobClient: class {
+    constructor(...args: unknown[]) {
+      clobClientConstructorMock(...args);
+    }
+
+    getMarkets = getMarketsMock;
+  },
+  INITIAL_CURSOR: "MA==",
+  END_CURSOR: "LTE=",
+}));
+
 type EnvMap = Record<string, string | undefined>;
 
 class TestConfigService {
@@ -29,6 +46,7 @@ class TestConfigService {
 describe("PolymarketHttpClient", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -37,8 +55,12 @@ describe("PolymarketHttpClient", () => {
 
   it("success 200 returns array", async () => {
     const markets = [{ id: "m1" }, { id: "m2" }];
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(markets), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+    getMarketsMock.mockResolvedValue({
+      data: markets,
+      count: 2,
+      limit: 100,
+      next_cursor: "LTE="
+    });
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -47,7 +69,7 @@ describe("PolymarketHttpClient", () => {
           provide: ConfigService,
           useValue: new TestConfigService({
             POLYMARKET_REST_URL: "https://clob.polymarket.com",
-            POLYMARKET_MARKETS_PATH: "/markets"
+            POLYMARKET_HTTP_TIMEOUT_MS: "1500"
           })
         }
       ]
@@ -57,14 +79,17 @@ describe("PolymarketHttpClient", () => {
     const result = await client.fetchMarkets();
 
     expect(result).toEqual(markets);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getMarketsMock).toHaveBeenCalledTimes(1);
+    expect(getMarketsMock).toHaveBeenCalledWith("MA==");
+    expect(clobClientConstructorMock).toHaveBeenCalledWith(
+      "https://clob.polymarket.com",
+      137
+    );
   });
 
   it("timeout error", async () => {
-    const fetchMock = vi.fn(async () => {
-      throw new DOMException("Timeout", "TimeoutError");
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    const neverSettles = new Promise<unknown>(() => {});
+    getMarketsMock.mockReturnValue(neverSettles);
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -73,8 +98,7 @@ describe("PolymarketHttpClient", () => {
           provide: ConfigService,
           useValue: new TestConfigService({
             POLYMARKET_REST_URL: "https://clob.polymarket.com",
-            POLYMARKET_MARKETS_PATH: "/markets",
-            POLYMARKET_HTTP_TIMEOUT_MS: "1234"
+            POLYMARKET_HTTP_TIMEOUT_MS: "1"
           })
         }
       ]
@@ -89,8 +113,7 @@ describe("PolymarketHttpClient", () => {
   });
 
   it("typed upstream status error", async () => {
-    const fetchMock = vi.fn(async () => new Response("Bad Gateway", { status: 502 }));
-    vi.stubGlobal("fetch", fetchMock);
+    getMarketsMock.mockRejectedValue({ status: 502 });
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -98,8 +121,7 @@ describe("PolymarketHttpClient", () => {
         {
           provide: ConfigService,
           useValue: new TestConfigService({
-            POLYMARKET_REST_URL: "https://clob.polymarket.com",
-            POLYMARKET_MARKETS_PATH: "/markets"
+            POLYMARKET_REST_URL: "https://clob.polymarket.com"
           })
         }
       ]
@@ -115,51 +137,33 @@ describe("PolymarketHttpClient", () => {
     });
   });
 
-  it("throws on missing required env", async () => {
-    await expect(
-      Test.createTestingModule({
-        providers: [
-          PolymarketHttpClient,
-          {
-            provide: ConfigService,
-            useValue: new TestConfigService({
-              POLYMARKET_REST_URL: "https://clob.polymarket.com"
-            })
-          }
-        ]
-      }).compile()
-    ).rejects.toThrowError(
-      "Missing required config value: POLYMARKET_MARKETS_PATH"
+  it("uses default clob host when POLYMARKET_REST_URL is missing", async () => {
+    getMarketsMock.mockResolvedValue({
+      data: [],
+      count: 0,
+      limit: 100,
+      next_cursor: "LTE="
+    });
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        PolymarketHttpClient,
+        {
+          provide: ConfigService,
+          useValue: new TestConfigService({})
+        }
+      ]
+    }).compile();
+
+    const client = moduleRef.get(PolymarketHttpClient);
+    await client.fetchMarkets();
+
+    expect(clobClientConstructorMock).toHaveBeenCalledWith(
+      "https://clob.polymarket.com",
+      137
     );
   });
 
-  it("throws on missing POLYMARKET_REST_URL", async () => {
-    await expect(
-      Test.createTestingModule({
-        providers: [
-          PolymarketHttpClient,
-          {
-            provide: ConfigService,
-            useValue: new TestConfigService({
-              POLYMARKET_MARKETS_PATH: "/markets"
-            })
-          }
-        ]
-      }).compile()
-    ).rejects.toThrowError("Missing required config value: POLYMARKET_REST_URL");
-  });
-
   it("invalid timeout uses 10000", async () => {
-    const timeoutSignal = new AbortController().signal;
-    const timeoutSpy = vi
-      .spyOn(AbortSignal, "timeout")
-      .mockReturnValue(timeoutSignal);
-
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      return new Response(JSON.stringify([]), { status: 200, statusText: String(init?.signal) });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         PolymarketHttpClient,
@@ -167,7 +171,6 @@ describe("PolymarketHttpClient", () => {
           provide: ConfigService,
           useValue: new TestConfigService({
             POLYMARKET_REST_URL: "https://clob.polymarket.com",
-            POLYMARKET_MARKETS_PATH: "/markets",
             POLYMARKET_HTTP_TIMEOUT_MS: "0"
           })
         }
@@ -175,25 +178,11 @@ describe("PolymarketHttpClient", () => {
     }).compile();
 
     const client = moduleRef.get(PolymarketHttpClient);
-    await client.fetchMarkets();
-
-    expect(timeoutSpy).toHaveBeenCalledWith(10000);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const callArgs = fetchMock.mock.calls[0] as [unknown, RequestInit | undefined];
-    expect(callArgs[1]?.signal).toBe(timeoutSignal);
+    const timeoutMs = (client as unknown as { timeoutMs: number }).timeoutMs;
+    expect(timeoutMs).toBe(10000);
   });
 
   it("invalid timeout NaN string uses 10000", async () => {
-    const timeoutSignal = new AbortController().signal;
-    const timeoutSpy = vi
-      .spyOn(AbortSignal, "timeout")
-      .mockReturnValue(timeoutSignal);
-
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      return new Response(JSON.stringify([]), { status: 200, statusText: String(init?.signal) });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         PolymarketHttpClient,
@@ -201,7 +190,6 @@ describe("PolymarketHttpClient", () => {
           provide: ConfigService,
           useValue: new TestConfigService({
             POLYMARKET_REST_URL: "https://clob.polymarket.com",
-            POLYMARKET_MARKETS_PATH: "/markets",
             POLYMARKET_HTTP_TIMEOUT_MS: "abc"
           })
         }
@@ -209,15 +197,17 @@ describe("PolymarketHttpClient", () => {
     }).compile();
 
     const client = moduleRef.get(PolymarketHttpClient);
-    await client.fetchMarkets();
-
-    expect(timeoutSpy).toHaveBeenCalledWith(10000);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const timeoutMs = (client as unknown as { timeoutMs: number }).timeoutMs;
+    expect(timeoutMs).toBe(10000);
   });
 
   it("throws PolymarketInvalidPayloadError when array contains invalid element", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify([null]), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+    getMarketsMock.mockResolvedValue({
+      data: [null],
+      count: 1,
+      limit: 100,
+      next_cursor: "LTE="
+    });
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -225,8 +215,7 @@ describe("PolymarketHttpClient", () => {
         {
           provide: ConfigService,
           useValue: new TestConfigService({
-            POLYMARKET_REST_URL: "https://clob.polymarket.com",
-            POLYMARKET_MARKETS_PATH: "/markets"
+            POLYMARKET_REST_URL: "https://clob.polymarket.com"
           })
         }
       ]
@@ -241,10 +230,9 @@ describe("PolymarketHttpClient", () => {
   });
 
   it("throws PolymarketInvalidPayloadError when payload is not array", async () => {
-    const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify({ id: "not-array" }), { status: 200 })
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    getMarketsMock.mockResolvedValue({
+      invalid: "shape"
+    });
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -252,8 +240,7 @@ describe("PolymarketHttpClient", () => {
         {
           provide: ConfigService,
           useValue: new TestConfigService({
-            POLYMARKET_REST_URL: "https://clob.polymarket.com",
-            POLYMARKET_MARKETS_PATH: "/markets"
+            POLYMARKET_REST_URL: "https://clob.polymarket.com"
           })
         }
       ]
@@ -265,5 +252,29 @@ describe("PolymarketHttpClient", () => {
     await expect(client.fetchMarkets()).rejects.toThrowError(
       "Polymarket markets response is not an array"
     );
+  });
+
+  it("классифицирует undici ConnectTimeoutError как PolymarketHttpTimeoutError", async () => {
+    const connectTimeoutError = Object.assign(new Error("connect timeout"), {
+      name: "ConnectTimeoutError",
+      code: "UND_ERR_CONNECT_TIMEOUT",
+    });
+    getMarketsMock.mockRejectedValue(connectTimeoutError);
+
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        PolymarketHttpClient,
+        {
+          provide: ConfigService,
+          useValue: new TestConfigService({
+            POLYMARKET_REST_URL: "https://clob.polymarket.com"
+          })
+        }
+      ]
+    }).compile();
+
+    const client = moduleRef.get(PolymarketHttpClient);
+
+    await expect(client.fetchMarkets()).rejects.toBeInstanceOf(PolymarketHttpTimeoutError);
   });
 });

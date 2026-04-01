@@ -5,7 +5,7 @@ import {
   PolymarketUpstreamStatusError,
 } from "../polymarket/polymarket-http.client.js";
 import { PolymarketMarketRaw } from "../polymarket/dto/polymarket-market.raw.js";
-import { MarketsService } from "./markets.service";
+import { MarketsService } from "./markets.service.js";
 
 describe("MarketsService", () => {
   function createService() {
@@ -22,26 +22,26 @@ describe("MarketsService", () => {
     const { service, fetchMarkets } = createService();
     fetchMarkets.mockResolvedValue([
       {
-        id: "market-1",
-        slug: "btc-above-100k",
+        condition_id: "0xmarket1",
+        market_slug: "btc-above-100k",
         question: "Will BTC be above $100k?",
-        outcomes: ["YES", "NO"],
+        tokens: [{ outcome: "YES" }, { outcome: "NO" }],
         active: true,
         closed: false,
         liquidity: "1500.5",
-        volume24h: 100,
-        endDate: "2026-12-31T23:59:59Z",
+        volume24hr: 100,
+        end_date_iso: "2026-12-31T23:59:59Z",
       },
       {
-        id: "market-2",
-        slug: "eth-above-5k",
+        condition_id: "0xmarket2",
+        market_slug: "eth-above-5k",
         question: "Will ETH be above $5k?",
-        outcomes: ["YES", "NO"],
+        tokens: [{ outcome: "YES" }, { outcome: "NO" }],
         active: false,
         closed: true,
         liquidity: 2500,
-        volume24h: "210.4",
-        endDate: "2026-11-30T12:00:00Z",
+        volume24hr: "210.4",
+        end_date_iso: "2026-11-30T12:00:00Z",
       },
     ]);
 
@@ -49,7 +49,7 @@ describe("MarketsService", () => {
 
     expect(result.data).toEqual([
       {
-        id: "market-1",
+        id: "0xmarket1",
         slug: "btc-above-100k",
         question: "Will BTC be above $100k?",
         outcomes: ["YES", "NO"],
@@ -60,7 +60,7 @@ describe("MarketsService", () => {
         endDate: "2026-12-31T23:59:59.000Z",
       },
       {
-        id: "market-2",
+        id: "0xmarket2",
         slug: "eth-above-5k",
         question: "Will ETH be above $5k?",
         outcomes: ["YES", "NO"],
@@ -81,15 +81,15 @@ describe("MarketsService", () => {
     const { service, fetchMarkets } = createService();
     fetchMarkets.mockResolvedValue([
       {
-        id: "market-1",
-        slug: "btc-above-100k",
+        condition_id: "0xmarket1",
+        market_slug: "btc-above-100k",
         question: "Will BTC be above $100k?",
-        outcomes: ["YES", "NO"],
+        tokens: [{ outcome: "YES" }, { outcome: "NO" }],
         active: true,
         closed: false,
         liquidity: "1500.5",
-        volume24h: 100,
-        endDate: "2026-12-31T23:59:59Z",
+        volume24hr: 100,
+        end_date_iso: "2026-12-31T23:59:59Z",
       },
     ]);
 
@@ -149,7 +149,7 @@ describe("MarketsService", () => {
 
   it("преобразует не-массив payload в 503", async () => {
     const { service, fetchMarkets } = createService();
-    fetchMarkets.mockResolvedValue({ id: "not-array" } as unknown as PolymarketMarketRaw[]);
+    fetchMarkets.mockResolvedValue({ condition_id: "not-array" } as unknown as PolymarketMarketRaw[]);
 
     const error = await service.getMarkets().catch((caught: unknown) => caught);
 
@@ -160,15 +160,15 @@ describe("MarketsService", () => {
     const { service, fetchMarkets } = createService();
     fetchMarkets.mockResolvedValue([
       {
-        id: 1001,
-        slug: "btc-above-100k",
+        condition_id: 1001,
+        market_slug: "btc-above-100k",
         question: "Will BTC be above $100k?",
-        outcomes: ["YES", "NO"],
+        tokens: [{ outcome: "YES" }, { outcome: "NO" }],
         active: true,
         closed: false,
         liquidity: "1500.5",
-        volume24h: 100,
-        endDate: "2026-12-31T23:59:59Z",
+        volume24hr: 100,
+        end_date_iso: "2026-12-31T23:59:59Z",
       },
     ]);
 
@@ -176,6 +176,39 @@ describe("MarketsService", () => {
 
     expect(error).toBeInstanceOf(ServiceUnavailableException);
     expect((error as ServiceUnavailableException).getStatus()).toBe(503);
+  });
+
+  it("пропускает невалидные элементы и возвращает валидные", async () => {
+    const { service, fetchMarkets } = createService();
+    fetchMarkets.mockResolvedValue([
+      {
+        condition_id: "",
+        market_slug: "broken-market",
+        question: "Broken?",
+        tokens: [{ outcome: "YES" }, { outcome: "NO" }],
+        active: true,
+        closed: false,
+        liquidity: 0,
+        volume24hr: 0,
+        end_date_iso: null,
+      },
+      {
+        condition_id: "0xok",
+        market_slug: "valid-market",
+        question: "Valid?",
+        tokens: [{ outcome: "YES" }, { outcome: "NO" }],
+        active: true,
+        closed: false,
+        liquidity: 1,
+        volume24hr: 2,
+        end_date_iso: "2026-12-31T23:59:59Z",
+      },
+    ]);
+
+    const result = await service.getMarkets();
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]?.id).toBe("0xok");
+    expect(result.meta.total).toBe(1);
   });
 
   it("преобразует неожиданную ошибку в 503", async () => {

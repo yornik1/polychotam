@@ -1,8 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { ClobClient } from "@polymarket/clob-client";
 import { PolymarketMarketRaw } from "./dto/polymarket-market.raw.js";
 
 const DEFAULT_HTTP_TIMEOUT_MS = 10000;
+const DEFAULT_POLYMARKET_CLOB_URL = "https://clob.polymarket.com";
+const POLYGON_CHAIN_ID = 137;
+
+const INITIAL_CURSOR = "MA==";
 
 export class PolymarketUpstreamStatusError extends Error {
   constructor(
@@ -30,50 +35,75 @@ export class PolymarketInvalidPayloadError extends Error {
 
 @Injectable()
 export class PolymarketHttpClient {
-  private readonly restUrl: string;
-  private readonly marketsPath: string;
+  private readonly host: string;
   private readonly timeoutMs: number;
+  private readonly client: Pick<ClobClient, "getMarkets">;
 
   constructor(private readonly configService: ConfigService) {
-    this.restUrl = this.configService.getOrThrow<string>("POLYMARKET_REST_URL");
-    this.marketsPath = this.configService.getOrThrow<string>("POLYMARKET_MARKETS_PATH");
+    this.host = this.resolveHost();
     this.timeoutMs = this.resolveTimeoutMs();
+    this.client = new ClobClient(this.host, POLYGON_CHAIN_ID);
   }
 
   async fetchMarkets(): Promise<PolymarketMarketRaw[]> {
-    const endpointUrl = new URL(this.marketsPath, this.restUrl).toString();
-
-    let response: Response;
     try {
-      response = await fetch(endpointUrl, {
-        method: "GET",
-        signal: AbortSignal.timeout(this.timeoutMs)
-      });
+      const payload = await this.withTimeout(this.client.getMarkets(INITIAL_CURSOR));
+      const rawMarkets = this.extractMarkets(payload);
+      return this.validateMarkets(rawMarkets);
     } catch (error: unknown) {
       if (this.isTimeoutError(error)) {
         throw new PolymarketHttpTimeoutError();
       }
+      const statusCode = this.extractStatusCode(error);
+      if (statusCode !== undefined) {
+        throw new PolymarketUpstreamStatusError(statusCode);
+      }
       throw error;
     }
+  }
 
-    if (response.status >= 400) {
-      throw new PolymarketUpstreamStatusError(response.status);
+  private resolveHost(): string {
+    const host = this.configService.get<string>("POLYMARKET_REST_URL");
+    if (typeof host !== "string" || host.trim() === "") {
+      return DEFAULT_POLYMARKET_CLOB_URL;
     }
+    return host.trim();
+  }
 
-    const payload: unknown = await response.json();
-    if (!Array.isArray(payload)) {
-      throw new PolymarketInvalidPayloadError("Polymarket markets response is not an array");
+  private async withTimeout<T>(operation: Promise<T>): Promise<T> {
+    const timeoutError = new PolymarketHttpTimeoutError();
+    let timeoutHandle: NodeJS.Timeout | undefined;
+
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => reject(timeoutError), this.timeoutMs);
+    });
+
+    try {
+      return await Promise.race([operation, timeoutPromise]);
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
     }
+  }
 
-    const hasInvalidElement = payload.some(
-      (item: unknown) => item === null || typeof item !== "object"
-    );
+  private extractMarkets(payload: unknown): unknown[] {
+    if (Array.isArray(payload)) {
+      return payload;
+    }
+    if (this.isPaginationPayload(payload)) {
+      return payload.data;
+    }
+    throw new PolymarketInvalidPayloadError("Polymarket markets response is not an array");
+  }
+
+  private validateMarkets(payload: unknown[]): PolymarketMarketRaw[] {
+    const hasInvalidElement = payload.some((item: unknown) => item === null || typeof item !== "object");
     if (hasInvalidElement) {
       throw new PolymarketInvalidPayloadError(
         "Polymarket markets response contains invalid market item"
       );
     }
-
     return payload as PolymarketMarketRaw[];
   }
 
@@ -88,11 +118,47 @@ export class PolymarketHttpClient {
     return timeoutNumber;
   }
 
+  private extractStatusCode(error: unknown): number | undefined {
+    if (typeof error !== "object" || error === null) {
+      return undefined;
+    }
+
+    const maybeStatus = (error as { status?: unknown }).status;
+    const maybeStatusCode = (error as { statusCode?: unknown }).statusCode;
+    const statusCandidate = typeof maybeStatus === "number" ? maybeStatus : maybeStatusCode;
+
+    if (typeof statusCandidate !== "number" || statusCandidate < 400) {
+      return undefined;
+    }
+
+    return statusCandidate;
+  }
+
+  private isPaginationPayload(value: unknown): value is { data: unknown[]; next_cursor: string } {
+    if (typeof value !== "object" || value === null) {
+      return false;
+    }
+    const maybeData = (value as { data?: unknown }).data;
+    return Array.isArray(maybeData);
+  }
+
   private isTimeoutError(error: unknown): boolean {
     if (!(error instanceof Error)) {
       return false;
     }
 
-    return error.name === "TimeoutError" || error.name === "AbortError";
+    if (error instanceof PolymarketHttpTimeoutError) {
+      return true;
+    }
+
+    const code = (error as { code?: unknown }).code;
+
+    // undici ConnectTimeoutError (UND_ERR_CONNECT_TIMEOUT) и стандартные AbortSignal-ошибки
+    return (
+      error.name === "TimeoutError" ||
+      error.name === "AbortError" ||
+      error.name === "ConnectTimeoutError" ||
+      code === "UND_ERR_CONNECT_TIMEOUT"
+    );
   }
 }

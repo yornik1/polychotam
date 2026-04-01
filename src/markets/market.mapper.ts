@@ -1,6 +1,6 @@
-import { MarketDto } from "./dto/market.dto";
-import { PolymarketMarketRaw } from "../polymarket/dto/polymarket-market.raw";
-import { PolymarketInvalidPayloadError } from "../polymarket/polymarket-http.client";
+import { MarketDto } from "./dto/market.dto.js";
+import { PolymarketMarketRaw } from "../polymarket/dto/polymarket-market.raw.js";
+import { PolymarketInvalidPayloadError } from "../polymarket/polymarket-http.client.js";
 
 function assertNonEmptyStringField(value: unknown, fieldName: string): string {
   if (typeof value !== "string") {
@@ -37,7 +37,18 @@ function assertBooleanField(value: unknown, fieldName: string): boolean {
   );
 }
 
-function assertNumberField(value: unknown, fieldName: string): number {
+function assertNumberField(
+  value: unknown,
+  fieldName: string,
+  options?: { defaultWhenMissing?: number }
+): number {
+  if (
+    options?.defaultWhenMissing !== undefined &&
+    (value === null || value === undefined || value === "")
+  ) {
+    return options.defaultWhenMissing;
+  }
+
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
@@ -54,36 +65,48 @@ function assertNumberField(value: unknown, fieldName: string): number {
   );
 }
 
-function assertOutcomesField(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    throw new PolymarketInvalidPayloadError('Polymarket market field "outcomes" must be an array');
+/**
+ * Извлекает outcomes из массива tokens.
+ * Каждый токен — объект с полем outcome: string.
+ */
+function assertOutcomesFromTokens(tokens: unknown): string[] {
+  if (!Array.isArray(tokens)) {
+    throw new PolymarketInvalidPayloadError('Polymarket market field "tokens" must be an array');
   }
 
-  const hasInvalidOutcome = value.some((item: unknown) => typeof item !== "string");
-  if (hasInvalidOutcome) {
-    throw new PolymarketInvalidPayloadError(
-      'Polymarket market field "outcomes" must contain only strings'
-    );
-  }
+  return tokens.map((token: unknown, i: number) => {
+    if (typeof token !== "object" || token === null) {
+      throw new PolymarketInvalidPayloadError(
+        `Polymarket market tokens[${i}] must be an object`
+      );
+    }
 
-  return value;
+    const outcome = (token as Record<string, unknown>).outcome;
+    if (typeof outcome !== "string" || outcome.trim() === "") {
+      throw new PolymarketInvalidPayloadError(
+        `Polymarket market tokens[${i}].outcome must be a non-empty string`
+      );
+    }
+
+    return outcome;
+  });
 }
 
 function assertNormalizedIsoDateField(value: unknown): string | null {
-  if (value === null) {
+  if (value === null || value === undefined) {
     return null;
   }
 
   if (typeof value !== "string") {
     throw new PolymarketInvalidPayloadError(
-      'Polymarket market field "endDate" must be a valid date string or null'
+      'Polymarket market field "end_date_iso" must be a valid date string or null'
     );
   }
 
   const parsedDate = new Date(value);
   if (Number.isNaN(parsedDate.getTime())) {
     throw new PolymarketInvalidPayloadError(
-      'Polymarket market field "endDate" must be a valid date string or null'
+      'Polymarket market field "end_date_iso" must be a valid date string or null'
     );
   }
 
@@ -92,14 +115,16 @@ function assertNormalizedIsoDateField(value: unknown): string | null {
 
 export function mapPolymarketMarket(raw: PolymarketMarketRaw): MarketDto {
   return {
-    id: assertNonEmptyStringField(raw.id, "id"),
-    slug: assertNonEmptyStringField(raw.slug, "slug"),
+    id: assertNonEmptyStringField(raw.condition_id, "condition_id"),
+    slug: assertNonEmptyStringField(raw.market_slug, "market_slug"),
     question: assertNonEmptyStringField(raw.question, "question"),
-    outcomes: assertOutcomesField(raw.outcomes),
+    outcomes: assertOutcomesFromTokens(raw.tokens),
     active: assertBooleanField(raw.active, "active"),
     closed: assertBooleanField(raw.closed, "closed"),
-    liquidity: assertNumberField(raw.liquidity, "liquidity"),
-    volume24h: assertNumberField(raw.volume24h, "volume24h"),
-    endDate: assertNormalizedIsoDateField(raw.endDate),
+    // В актуальном CLOB API поля liquidity/volume24hr могут отсутствовать.
+    // Для стабильного DTO-контракта в MVP используем безопасный fallback 0.
+    liquidity: assertNumberField(raw.liquidity, "liquidity", { defaultWhenMissing: 0 }),
+    volume24h: assertNumberField(raw.volume24hr, "volume24hr", { defaultWhenMissing: 0 }),
+    endDate: assertNormalizedIsoDateField(raw.end_date_iso),
   };
 }

@@ -17,17 +17,18 @@ import { WalletsModule } from "./wallets/wallets.module.js";
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true
+      isGlobal: true,
+      envFilePath: [".env"],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
-        buildTypeOrmConfig(configService)
+        buildTypeOrmConfig(configService),
     }),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
-        buildBullMqConfig(configService)
+        buildBullMqConfig(configService),
     }),
     MarketsModule,
     TradesModule,
@@ -35,9 +36,9 @@ import { WalletsModule } from "./wallets/wallets.module.js";
     QueueModule,
     PolymarketModule,
     TelegramModule,
-    CommonModule
+    CommonModule,
   ],
   controllers: [AppController],
-  providers: [AppService]
+  providers: [AppService],
 })
 export class AppModule {}

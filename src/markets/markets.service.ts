@@ -51,13 +51,34 @@ export class MarketsService {
       throw new PolymarketInvalidPayloadError("Polymarket markets payload is not an array");
     }
 
-    return rawMarkets.map((rawMarket: PolymarketMarketRaw) => {
+    const mapped: MarketsResponseDto["data"] = [];
+    let skipped = 0;
+
+    for (const rawMarket of rawMarkets) {
       if (rawMarket === null || typeof rawMarket !== "object") {
         throw new PolymarketInvalidPayloadError("Polymarket market item has invalid shape");
       }
 
-      return mapPolymarketMarket(rawMarket);
-    });
+      try {
+        mapped.push(mapPolymarketMarket(rawMarket));
+      } catch (error: unknown) {
+        if (error instanceof PolymarketInvalidPayloadError) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (skipped > 0) {
+      this.logger.warn(`Пропущено невалидных маркетов из upstream: ${skipped}`);
+    }
+
+    if (mapped.length === 0 && rawMarkets.length > 0) {
+      throw new PolymarketInvalidPayloadError("Polymarket markets payload contains no valid markets");
+    }
+
+    return mapped;
   }
 
   private rethrowAsHttpException(error: unknown): never {
