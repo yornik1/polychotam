@@ -8,19 +8,19 @@ import { getBotToken } from "nestjs-telegraf";
 import { DataSource, EntityManager } from "typeorm";
 import { AppModule } from "../src/app.module.js";
 import { PolymarketHttpClient } from "../src/polymarket/polymarket-http.client.js";
+import { PolymarketWsClient } from "../src/polymarket/polymarket-ws.client.js";
 
 describe("GET /markets (e2e)", () => {
   let app: INestApplication;
-  const envSnapshot: NodeJS.ProcessEnv = { ...process.env };
   const fetchMarkets = vi.fn<() => Promise<unknown[]>>();
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = "postgres://test:test@127.0.0.1:5432/polychotam_test";
-    process.env.REDIS_URL = "redis://127.0.0.1:6379";
-    process.env.TELEGRAM_BOT_TOKEN = "test-token";
-    process.env.POLYMARKET_WS_URL = "wss://example.com/ws";
-    process.env.POLYMARKET_REST_URL = "https://example.com";
-    process.env.POLYMARKET_MARKETS_PATH = "/markets";
+    vi.stubEnv("DATABASE_URL", "postgres://test:test@127.0.0.1:5432/polychotam_test");
+    vi.stubEnv("REDIS_URL", "redis://127.0.0.1:6379");
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
+    vi.stubEnv("POLYMARKET_WS_URL", "wss://example.com/ws");
+    vi.stubEnv("POLYMARKET_REST_URL", "https://example.com");
+    vi.stubEnv("POLYMARKET_MARKETS_PATH", "/markets");
 
     fetchMarkets.mockResolvedValue([
       {
@@ -51,6 +51,8 @@ describe("GET /markets (e2e)", () => {
       .useValue({ launch: vi.fn(), stop: vi.fn(), use: vi.fn() })
       .overrideProvider(PolymarketHttpClient)
       .useValue({ fetchMarkets })
+      .overrideProvider(PolymarketWsClient)
+      .useValue({ onModuleInit: vi.fn(), onModuleDestroy: vi.fn() })
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -61,7 +63,7 @@ describe("GET /markets (e2e)", () => {
     if (app) {
       await app.close();
     }
-    process.env = { ...envSnapshot };
+    vi.unstubAllEnvs();
   });
 
   it("returns 200 with data and meta", async () => {
