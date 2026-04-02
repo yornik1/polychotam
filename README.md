@@ -69,7 +69,7 @@ docker compose up --build
 - `DATABASE_URL` — строка подключения к PostgreSQL
 - `REDIS_URL` — строка подключения к Redis
 - `TELEGRAM_BOT_TOKEN` — токен Telegram-бота
-- `POLYMARKET_WS_URL` — URL WebSocket API Polymarket
+- `POLYMARKET_WS_URL` — WebSocket **market channel** Polymarket CLOB. Должен быть `wss://ws-subscriptions-clob.polymarket.com/ws/market` (адрес вида `wss://clob.polymarket.com/ws/market` отдаёт 404 при handshake).
 
 Все env-переменные читаются через `ConfigService`.
 
