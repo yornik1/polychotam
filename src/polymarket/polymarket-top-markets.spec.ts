@@ -108,7 +108,39 @@ describe("buildTopMarketsWsSelection", () => {
     expect(sel.rows[0]?.conditionId).toBe("0x2");
     expect(sel.rows[0]?.slug).toBe("slug-a");
     expect(sel.rows[0]?.volume24hr).toBe(300);
+    expect(sel.rows[0]?.tradabilityScore).toBe(2);
     expect(sel.rows[0]?.tokenIds).toEqual(["ta"]);
     expect([...sel.assetIds].sort()).toEqual([...pickTopMarketsByVolume(markets, 2)].sort());
+  });
+
+  it("при нулевом объёме сортирует по торгуемости (accepting_orders / active / closed)", () => {
+    const markets: PolymarketMarketRaw[] = [
+      market({
+        condition_id: "0xa",
+        volume24hr: 0,
+        active: true,
+        closed: true,
+        tokens: [{ token_id: "ta", outcome: "Yes" }],
+      }),
+      market({
+        condition_id: "0xb",
+        volume24hr: 0,
+        active: true,
+        closed: false,
+        accepting_orders: false,
+        tokens: [{ token_id: "tb", outcome: "Yes" }],
+      }),
+      market({
+        condition_id: "0xc",
+        volume24hr: 0,
+        active: true,
+        closed: false,
+        accepting_orders: true,
+        tokens: [{ token_id: "tc", outcome: "Yes" }],
+      }),
+    ];
+    const sel = buildTopMarketsWsSelection(markets, 3);
+    expect(sel.rows.map((r) => r.conditionId)).toEqual(["0xc", "0xb", "0xa"]);
+    expect(sel.rows[0]?.tradabilityScore).toBe(3);
   });
 });

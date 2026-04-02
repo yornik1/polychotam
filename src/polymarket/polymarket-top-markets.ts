@@ -1,16 +1,45 @@
 import type { PolymarketMarketRaw } from "./dto/polymarket-market.raw.js";
 
 /**
- * Объём за 24ч из сырого маркета (как в CLOB /markets).
+ * Объём за 24ч: в актуальном CLOB `/markets` поля `volume24hr` часто **нет** в JSON — тогда 0.
+ * Пробуем несколько имён на случай расширения API.
  */
 function volume24hrOf(market: PolymarketMarketRaw): number {
-  const v = market.volume24hr;
-  if (typeof v === "number" && Number.isFinite(v)) {
-    return v;
+  const keys = ["volume24hr", "volume_24hr", "volume24HR", "volume"] as const;
+  for (const key of keys) {
+    const v = market[key];
+    if (v === undefined || v === null || v === "") {
+      continue;
+    }
+    if (typeof v === "number" && Number.isFinite(v)) {
+      return v;
+    }
+    if (typeof v === "string") {
+      const n = Number(v);
+      if (Number.isFinite(n)) {
+        return n;
+      }
+    }
   }
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
+  return 0;
+}
+
+/**
+ * Когда объём недоступен, поднимаем рынки, по которым реальнее поймать события WS.
+ * 3 — принимает ордера и не закрыт; 2 — активен и не закрыт; 1 — помечен active; 0 — остальное.
+ */
+function wsTradabilityScore(market: PolymarketMarketRaw): number {
+  const active = market.active === true;
+  const closed = market.closed === true;
+  const accepting = market.accepting_orders === true;
+  if (accepting && active && !closed) {
+    return 3;
+  }
+  if (active && !closed) {
+    return 2;
+  }
+  if (active) {
+    return 1;
   }
   return 0;
 }
@@ -60,6 +89,8 @@ export interface TopMarketWsRow {
   readonly conditionId: string;
   readonly slug: string;
   readonly volume24hr: number;
+  /** 0–3, см. wsTradabilityScore (если объём везде 0 — по этому полю видно, почему рынок в топе). */
+  readonly tradabilityScore: number;
   /** clob token_id этого маркета (Yes/No и т.д.). */
   readonly tokenIds: readonly string[];
 }
@@ -73,7 +104,8 @@ export interface TopMarketsWsSelection {
 }
 
 /**
- * Выбирает топ `limit` маркетов по volume24hr и возвращает строки для логов + уникальные token_id для подписки.
+ * Выбирает топ `limit` маркетов: сначала по убыванию объёма 24h (если CLOB его прислал),
+ * при равенстве — по «торгуемости» (accepting_orders / active / closed), затем стабильно по индексу.
  *
  * Сверка с докой: https://docs.polymarket.com/developers/CLOB/websocket/market-channel
  */
@@ -96,6 +128,11 @@ export function buildTopMarketsWsSelection(
     if (vb !== va) {
       return vb - va;
     }
+    const ta = wsTradabilityScore(a.market);
+    const tb = wsTradabilityScore(b.market);
+    if (tb !== ta) {
+      return tb - ta;
+    }
     return a.index - b.index;
   });
 
@@ -108,6 +145,7 @@ export function buildTopMarketsWsSelection(
       conditionId,
       slug: slugForLog(market),
       volume24hr: volume24hrOf(market),
+      tradabilityScore: wsTradabilityScore(market),
       tokenIds: extractTokenIds(market.tokens),
     };
   });

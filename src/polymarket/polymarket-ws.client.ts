@@ -127,11 +127,16 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
       assetIds = selection.assetIds;
 
       this.logger.log(
-        `Топ-${selection.rows.length} маркетов по объёму 24h (слушаем все clob token_id этих рынков); уникальных assets_ids для подписки: ${assetIds.length}`
+        `Топ-${selection.rows.length} маркетов (объём 24h с CLOB /markets + приоритет торгуемости); уникальных assets_ids: ${assetIds.length}`
       );
+      if (selection.rows.length > 0 && selection.rows.every((r) => r.volume24hr === 0)) {
+        this.logger.warn(
+          "У выбранных рынков объём 24h = 0: в ответе CLOB /markets поля объёма обычно нет — «топ по объёму» недоступен без другого API (например Gamma). Сортировка: приоритет accepting_orders / active / closed."
+        );
+      }
       for (const row of selection.rows) {
         this.logger.log(
-          `  #${row.rank} vol24h=${row.volume24hr} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`
+          `  #${row.rank} vol24h=${row.volume24hr} tradePri=${row.tradabilityScore} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`
         );
       }
     } catch (error: unknown) {

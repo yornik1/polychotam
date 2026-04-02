@@ -13,6 +13,8 @@ export interface PolymarketMarketRaw {
   readonly tokens: unknown;
   readonly active: unknown;
   readonly closed: unknown;
+  /** Принимает ли маркет ордера сейчас (есть в ответе CLOB /markets). */
+  readonly accepting_orders?: unknown;
   readonly liquidity: unknown;
   readonly volume24hr: unknown;
   readonly end_date_iso: unknown;
