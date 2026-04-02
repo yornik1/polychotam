@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PolymarketMarketRaw } from "./dto/polymarket-market.raw.js";
-import { pickTopMarketsByVolume } from "./polymarket-top-markets.js";
+import { buildTopMarketsWsSelection, pickTopMarketsByVolume } from "./polymarket-top-markets.js";
 
 function market(partial: Partial<PolymarketMarketRaw> & { condition_id: string; tokens: unknown }): PolymarketMarketRaw {
   return {
@@ -83,5 +83,32 @@ describe("pickTopMarketsByVolume", () => {
     ];
     const ids = pickTopMarketsByVolume(markets, 1);
     expect(ids.sort()).toEqual(["no", "yes"]);
+  });
+});
+
+describe("buildTopMarketsWsSelection", () => {
+  it("возвращает rows с рангами и теми же assetIds, что и pickTopMarketsByVolume", () => {
+    const markets: PolymarketMarketRaw[] = [
+      market({
+        condition_id: "0x1",
+        market_slug: "slug-b",
+        volume24hr: 200,
+        tokens: [{ token_id: "tb", outcome: "Yes" }],
+      }),
+      market({
+        condition_id: "0x2",
+        market_slug: "slug-a",
+        volume24hr: 300,
+        tokens: [{ token_id: "ta", outcome: "Yes" }],
+      }),
+    ];
+    const sel = buildTopMarketsWsSelection(markets, 2);
+    expect(sel.rows).toHaveLength(2);
+    expect(sel.rows[0]?.rank).toBe(1);
+    expect(sel.rows[0]?.conditionId).toBe("0x2");
+    expect(sel.rows[0]?.slug).toBe("slug-a");
+    expect(sel.rows[0]?.volume24hr).toBe(300);
+    expect(sel.rows[0]?.tokenIds).toEqual(["ta"]);
+    expect([...sel.assetIds].sort()).toEqual([...pickTopMarketsByVolume(markets, 2)].sort());
   });
 });

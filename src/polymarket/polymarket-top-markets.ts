@@ -43,18 +43,46 @@ function hasEligibleConditionId(market: PolymarketMarketRaw): boolean {
   return typeof cid === "string" && cid.trim().length > 0;
 }
 
+function slugForLog(market: PolymarketMarketRaw): string {
+  if (typeof market.market_slug === "string" && market.market_slug.trim().length > 0) {
+    return market.market_slug.trim();
+  }
+  if (typeof market.question === "string" && market.question.trim().length > 0) {
+    const q = market.question.trim();
+    return q.length > 100 ? `${q.slice(0, 97)}...` : q;
+  }
+  return "(без slug)";
+}
+
+/** Одна строка топа для логов и подписки WS. */
+export interface TopMarketWsRow {
+  readonly rank: number;
+  readonly conditionId: string;
+  readonly slug: string;
+  readonly volume24hr: number;
+  /** clob token_id этого маркета (Yes/No и т.д.). */
+  readonly tokenIds: readonly string[];
+}
+
 /**
- * Выбирает топ `limit` маркетов по volume24hr (убывание, стабильно при равенстве — по исходному индексу).
- * Возвращает **token_id** (asset id) для подписки на market channel CLOB (`assets_ids`), по одному рынку — все его токены.
+ * Топ `limit` рынков по объёму + плоский список `assets_ids` для CLOB market channel.
+ */
+export interface TopMarketsWsSelection {
+  readonly rows: readonly TopMarketWsRow[];
+  readonly assetIds: readonly string[];
+}
+
+/**
+ * Выбирает топ `limit` маркетов по volume24hr и возвращает строки для логов + уникальные token_id для подписки.
  *
  * Сверка с докой: https://docs.polymarket.com/developers/CLOB/websocket/market-channel
  */
-export function pickTopMarketsByVolume(
+export function buildTopMarketsWsSelection(
   markets: readonly PolymarketMarketRaw[],
   limit: number
-): string[] {
+): TopMarketsWsSelection {
   if (limit <= 0) {
-    return [];
+    return { rows: [], assetIds: [] };
   }
 
   const withIndex = markets.map((market, index) => ({ market, index }));
@@ -72,11 +100,34 @@ export function pickTopMarketsByVolume(
   });
 
   const picked = eligible.slice(0, limit);
+  const rows: TopMarketWsRow[] = picked.map(({ market }, i) => {
+    const cid = market.condition_id;
+    const conditionId = typeof cid === "string" ? cid.trim() : "";
+    return {
+      rank: i + 1,
+      conditionId,
+      slug: slugForLog(market),
+      volume24hr: volume24hrOf(market),
+      tokenIds: extractTokenIds(market.tokens),
+    };
+  });
+
   const unique = new Set<string>();
-  for (const { market } of picked) {
-    for (const tokenId of extractTokenIds(market.tokens)) {
+  for (const row of rows) {
+    for (const tokenId of row.tokenIds) {
       unique.add(tokenId);
     }
   }
-  return [...unique];
+
+  return { rows, assetIds: [...unique] };
+}
+
+/**
+ * Уникальные **token_id** для `assets_ids` (все исходы выбранных рынков).
+ */
+export function pickTopMarketsByVolume(
+  markets: readonly PolymarketMarketRaw[],
+  limit: number
+): string[] {
+  return [...buildTopMarketsWsSelection(markets, limit).assetIds];
 }

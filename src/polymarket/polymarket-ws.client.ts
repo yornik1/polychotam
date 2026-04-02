@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import { ConfigService } from "@nestjs/config";
 import WebSocket from "ws";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
-import { pickTopMarketsByVolume } from "./polymarket-top-markets.js";
+import { buildTopMarketsWsSelection } from "./polymarket-top-markets.js";
 import { parseTradeEventsFromWsPayload } from "./polymarket-ws-trade.parser.js";
 
 /** Полный цикл после ошибки HTTP/обрыва WS (спека). */
@@ -17,6 +17,8 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private isDestroyed = false;
+  /** Сколько первых сырых кадров показать уровнем LOG (остальные — debug). */
+  private rawLogSamplesLeft = 0;
 
   constructor(
     private readonly configService: ConfigService,
@@ -83,7 +85,16 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    this.logger.debug(`Raw WS message: ${rawData}`);
+    const isEmptyJsonArray = trimmed === "[]";
+    if (isEmptyJsonArray) {
+      this.logger.debug("WS сырой кадр: [] (пустой массив от upstream, часто сразу после подписки)");
+    } else if (this.rawLogSamplesLeft > 0) {
+      this.rawLogSamplesLeft -= 1;
+      const preview = rawData.length > 800 ? `${rawData.slice(0, 797)}...` : rawData;
+      this.logger.log(`WS сырой кадр (пример): ${preview}`);
+    } else {
+      this.logger.debug(`WS сырой кадр: ${rawData.length > 400 ? `${rawData.slice(0, 397)}...` : rawData}`);
+    }
 
     let parsed: unknown;
     try {
@@ -97,7 +108,7 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
     for (const trade of trades) {
       const walletLabel = trade.wallet.length > 0 ? trade.wallet : "—";
       this.logger.log(
-        `Сделка: кошелёк=${walletLabel}, сумма=${trade.amount}, маркет=${trade.market}, актив=${trade.assetId}, сторона=${trade.side}, цена=${trade.price}`
+        `Сделка: кошелёк=${walletLabel}, сумма=${trade.amount}, маркет=${trade.market} | актив=${trade.assetId}, сторона=${trade.side}, цена=${trade.price}`
       );
     }
   }
@@ -109,10 +120,20 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
 
     this.teardownSocket();
 
-    let assetIds: string[];
+    let assetIds: readonly string[] = [];
     try {
       const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
-      assetIds = pickTopMarketsByVolume(rawMarkets, 20);
+      const selection = buildTopMarketsWsSelection(rawMarkets, 20);
+      assetIds = selection.assetIds;
+
+      this.logger.log(
+        `Топ-${selection.rows.length} маркетов по объёму 24h (слушаем все clob token_id этих рынков); уникальных assets_ids для подписки: ${assetIds.length}`
+      );
+      for (const row of selection.rows) {
+        this.logger.log(
+          `  #${row.rank} vol24h=${row.volume24hr} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`
+        );
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Неизвестная ошибка";
       this.logger.error(`Ошибка загрузки маркетов для WS: ${message}`);
@@ -137,10 +158,16 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
       this.logger.log("WS подключился к Polymarket CLOB");
       // Подписка market channel: поле assets_ids — clob token_id (дока Polymarket).
       const payload = {
-        assets_ids: assetIds,
+        assets_ids: [...assetIds],
         type: "market",
       };
-      socket.send(JSON.stringify(payload));
+      const subscribeJson = JSON.stringify(payload);
+      this.logger.log(
+        `Отправка подписки market channel: type=market, assets_ids.length=${assetIds.length}`
+      );
+      this.logger.log(`Тело подписки (сырой JSON): ${subscribeJson.length > 1200 ? `${subscribeJson.slice(0, 1197)}...` : subscribeJson}`);
+      this.rawLogSamplesLeft = 5;
+      socket.send(subscribeJson);
       this.startPing(socket);
     });
 
