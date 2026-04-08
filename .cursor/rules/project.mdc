@@ -1,5 +1,5 @@
 ---
-description: Стиль ответов и общие ограничения polychotam
+description: Правила проекта polychotam (стиль, стек, архитектура, типы)
 globs:
   - "**/*"
 alwaysApply: true
@@ -15,12 +15,39 @@ alwaysApply: true
 
 Минимальные изменения кода: не переписывать то, что уже работает.
 
-## Стек
+## Архитектура
 
-Polychotam: NestJS, TypeScript, PostgreSQL, TypeORM, BullMQ, Redis, Telegraf, Docker Compose.
+- Следовать модульной структуре NestJS из `docs/PROJECT_STRUCTURE.md`
+- Сохранять изоляцию модулей: импортировать только необходимые модули
+- Общие абстракции выносить в `common`
+- Перед архитектурными изменениями сверяться с `docs/PROJECT_STRUCTURE.md`
+- Для документации библиотек использовать MCP Context7
+
+## TypeScript
+
+- Строгая типизация, не использовать `any`
+- Предпочитать явные типы для публичных методов сервисов
+
+## Конфигурация
+
+- Читать переменные окружения только через `ConfigService`
+- Проверять обязательные env через `getOrThrow`
+
+## Стек и интеграции
+
+NestJS, TypeScript, Docker Compose.
+
+- PostgreSQL: TypeORM (`@nestjs/typeorm`)
+- Redis и очереди: BullMQ (`@nestjs/bullmq`)
+- Telegram: `nestjs-telegraf`
+- WebSocket: встроенные средства NestJS
 
 ## Контракты типов
 
 Файл `src/types/contracts.ts` — единый источник контрактов; использовать его всегда, где применимо.
 
 Не дублировать типы локально, если нужный тип уже объявлен в `contracts.ts`.
+
+## Комментарии
+
+- Комментарии в коде писать на русском.

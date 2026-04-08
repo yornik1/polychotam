@@ -18,7 +18,7 @@ import { WalletsModule } from "./wallets/wallets.module.js";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [".env"],
+      envFilePath: [".env", ".env.local"],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],

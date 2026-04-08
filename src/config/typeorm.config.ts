@@ -1,5 +1,7 @@
 import { ConfigService } from "@nestjs/config";
 import { TypeOrmModuleOptions } from "@nestjs/typeorm";
+import { DataSourceOptions } from "typeorm";
+import { join } from "path";
 
 type ParsedDbUrl = {
   host: string;
@@ -22,12 +24,8 @@ function parseDatabaseUrl(databaseUrl: string): ParsedDbUrl {
   };
 }
 
-export function buildTypeOrmConfig(
-  configService: ConfigService
-): TypeOrmModuleOptions {
-  const databaseUrl = configService.getOrThrow<string>("DATABASE_URL");
+export function getDataSourceOptions(databaseUrl: string): DataSourceOptions {
   const parsed = parseDatabaseUrl(databaseUrl);
-
   return {
     type: "postgres",
     host: parsed.host,
@@ -35,8 +33,19 @@ export function buildTypeOrmConfig(
     username: parsed.username,
     password: parsed.password,
     database: parsed.database,
-    ssl: parsed.ssl,
-    autoLoadEntities: true,
+    ssl: parsed.ssl ? { rejectUnauthorized: false } : false,
+    entities: [join(__dirname, "..", "**", "*.entity{.ts,.js}")],
+    migrations: [join(__dirname, "..", "migrations", "*{.ts,.js}")],
     synchronize: false
+  };
+}
+
+export function buildTypeOrmConfig(
+  configService: ConfigService
+): TypeOrmModuleOptions {
+  const databaseUrl = configService.getOrThrow<string>("DATABASE_URL");
+  return {
+    ...getDataSourceOptions(databaseUrl),
+    autoLoadEntities: true, // NestJS specific
   };
 }

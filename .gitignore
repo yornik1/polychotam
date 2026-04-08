@@ -3,6 +3,7 @@
 /node_modules
 /build
 /tmp
+.idea
 
 # Logs
 logs
@@ -22,3 +23,5 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
+.worktrees
+.env.local

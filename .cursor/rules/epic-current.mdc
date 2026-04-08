@@ -1,23 +1,13 @@
 ---
-description: Текущий эпик и процесс задач
+description: Текущий проект и процесс задач
 globs:
   - "**/*"
 alwaysApply: true
 ---
 
-# Текущий эпик
+# MVP — Polychotam
 
-Эпик: Epic 2 — WebSocket.
+Notion-борда: https://www.notion.so/9bdc07518c0546eaa9aa84e6f9bd0483
+Задача: https://www.notion.so/33b7b5e2ccce81d8989bc9884315e34a (БД схема: сущности + миграции)
 
-Статус: Epic 1 завершён (Docker, NestJS, TypeORM готовы).
-
-Активные задачи: TASK-001, TASK-002, TASK-003.
-
-Выполнено: пока ничего.
-
-## Порядок при работе над задачей
-
-1. Прочитать TASK-файл целиком.
-2. Использовать типы из `src/types/contracts.ts`.
-3. Сначала тест, затем реализация (TDD).
-4. После готовности: `git add -p`, затем `git commit` с сообщением из карточки задачи.
+Типы: `src/types/contracts.ts`. Подход: TDD.

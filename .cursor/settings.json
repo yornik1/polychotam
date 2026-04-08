@@ -2,6 +2,9 @@
   "plugins": {
     "superpowers": {
       "enabled": true
+    },
+    "notion-workspace": {
+      "enabled": true
     }
   }
 }

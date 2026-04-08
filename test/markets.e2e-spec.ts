@@ -1,14 +1,21 @@
 import { INestApplication } from "@nestjs/common";
 import { getQueueToken, getSharedConfigToken } from "@nestjs/bullmq";
 import { Test, TestingModule } from "@nestjs/testing";
-import { getDataSourceToken, getEntityManagerToken } from "@nestjs/typeorm";
+import {
+  getDataSourceToken,
+  getEntityManagerToken,
+  getRepositoryToken
+} from "@nestjs/typeorm";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getBotToken } from "nestjs-telegraf";
-import { DataSource, EntityManager } from "typeorm";
+import { DataSource, EntityManager, Repository } from "typeorm";
 import { AppModule } from "../src/app.module.js";
+import { Market } from "../src/markets/market.entity.js";
 import { PolymarketHttpClient } from "../src/polymarket/polymarket-http.client.js";
 import { PolymarketWsClient } from "../src/polymarket/polymarket-ws.client.js";
+import { Trade } from "../src/trades/trade.entity.js";
+import { Wallet } from "../src/wallets/wallet.entity.js";
 
 describe("GET /markets (e2e)", () => {
   let app: INestApplication;
@@ -36,6 +43,8 @@ describe("GET /markets (e2e)", () => {
       },
     ]);
 
+    const emptyRepo = {} as Repository<Market>;
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -43,6 +52,12 @@ describe("GET /markets (e2e)", () => {
       .useValue({ initialize: vi.fn(), destroy: vi.fn() } as Partial<DataSource>)
       .overrideProvider(getEntityManagerToken())
       .useValue({} as Partial<EntityManager>)
+      .overrideProvider(getRepositoryToken(Market))
+      .useValue(emptyRepo)
+      .overrideProvider(getRepositoryToken(Trade))
+      .useValue(emptyRepo as Repository<Trade>)
+      .overrideProvider(getRepositoryToken(Wallet))
+      .useValue(emptyRepo as Repository<Wallet>)
       .overrideProvider(getSharedConfigToken())
       .useValue({ connection: { host: "localhost", port: 6379 } })
       .overrideProvider(getQueueToken("default"))

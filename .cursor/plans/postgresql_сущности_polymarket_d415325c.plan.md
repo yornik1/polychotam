@@ -175,7 +175,7 @@ npm run migration:revert
 
 - [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) — модули домена (в т.ч. `markets`, `trades`, `wallets`); сюда после внедрения сущностей стоит добавить подраздел **«Персистенс / TypeORM»**: таблицы, связь с Polymarket-именами колонок, путь миграций `src/migrations/`, команды `npm run migration:*`, принцип `internal_*`.
 - [docs/CURSOR_SETUP.md](docs/CURSOR_SETUP.md) — рекомендации агенту; при желании одна строка-отсылка «схема БД и соглашения — в PROJECT_STRUCTURE».
-- [.cursorrules](.cursorrules) и [.cursor/rules/polychotam-base.mdc](.cursor/rules/polychotam-base.mdc) — оперативные правила; при существенном изменении потока данных можно добавить пункт «имена колонок = CLOB/SDK».
+- [.cursorrules](.cursorrules) и [.cursor/rules/project.mdc](.cursor/rules/project.mdc) — оперативные правила; при существенном изменении потока данных можно добавить пункт «имена колонок = CLOB/SDK».
 
 Задача **`docs-agents`** в трекере плана: после реализации entity и миграций **обновить `docs/PROJECT_STRUCTURE.md`** (минимально достаточно для следующего агента); остальное — по необходимости.
 
