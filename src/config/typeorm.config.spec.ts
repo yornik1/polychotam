@@ -5,9 +5,11 @@ import { buildTypeOrmConfig, getDataSourceOptions } from "./typeorm.config";
 describe("TypeORM Configuration", () => {
   it("should parse database URL correctly", () => {
     const databaseUrl = "postgresql://user:pass@localhost:5432/mydb";
-    const options = getDataSourceOptions(databaseUrl) as any;
-
+    const options = getDataSourceOptions(databaseUrl);
     expect(options.type).toBe("postgres");
+    if (options.type !== "postgres") {
+      throw new Error("ожидался драйвер postgres");
+    }
     expect(options.host).toBe("localhost");
     expect(options.port).toBe(5432);
     expect(options.username).toBe("user");
@@ -18,17 +20,20 @@ describe("TypeORM Configuration", () => {
 
   it("should handle sslmode=require", () => {
     const databaseUrl = "postgresql://user:pass@host:5432/db?sslmode=require";
-    const options = getDataSourceOptions(databaseUrl) as any;
-
+    const options = getDataSourceOptions(databaseUrl);
+    expect(options.type).toBe("postgres");
+    if (options.type !== "postgres") {
+      throw new Error("ожидался драйвер postgres");
+    }
     expect(options.ssl).toEqual({ rejectUnauthorized: false });
   });
 
   it("should generate TypeOrmModule options", () => {
     const mockConfigService = {
-      getOrThrow: vi.fn().mockReturnValue("postgresql://u:p@h:5432/d")
+      getOrThrow: vi.fn().mockReturnValue("postgresql://u:p@h:5432/d"),
     } as unknown as ConfigService;
 
-    const options = buildTypeOrmConfig(mockConfigService) as any;
+    const options = buildTypeOrmConfig(mockConfigService);
 
     expect(mockConfigService.getOrThrow).toHaveBeenCalledWith("DATABASE_URL");
     expect(options.autoLoadEntities).toBe(true);

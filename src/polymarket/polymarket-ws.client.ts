@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import WebSocket from "ws";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
@@ -22,7 +27,7 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly polymarketHttpClient: PolymarketHttpClient
+    private readonly polymarketHttpClient: PolymarketHttpClient,
   ) {}
 
   onModuleInit(): void {
@@ -85,16 +90,16 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const isEmptyJsonArray = trimmed === "[]";
-    if (isEmptyJsonArray) {
-      this.logger.debug("WS сырой кадр: [] (пустой массив от upstream, часто сразу после подписки)");
-    } else if (this.rawLogSamplesLeft > 0) {
-      this.rawLogSamplesLeft -= 1;
-      const preview = rawData.length > 800 ? `${rawData.slice(0, 797)}...` : rawData;
-      this.logger.log(`WS сырой кадр (пример): ${preview}`);
-    } else {
-      this.logger.debug(`WS сырой кадр: ${rawData.length > 400 ? `${rawData.slice(0, 397)}...` : rawData}`);
-    }
+    // const isEmptyJsonArray = trimmed === "[]";
+    // if (isEmptyJsonArray) {
+    //   this.logger.debug("WS сырой кадр: [] (пустой массив от upstream, часто сразу после подписки)");
+    // } else if (this.rawLogSamplesLeft > 0) {
+    //   this.rawLogSamplesLeft -= 1;
+    //   const preview = rawData.length > 800 ? `${rawData.slice(0, 797)}...` : rawData;
+    //   this.logger.log(`WS сырой кадр (пример): ${preview}`);
+    // } else {
+    //   this.logger.debug(`WS сырой кадр: ${rawData.length > 400 ? `${rawData.slice(0, 397)}...` : rawData}`);
+    // }
 
     let parsed: unknown;
     try {
@@ -108,7 +113,7 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
     for (const trade of trades) {
       const walletLabel = trade.wallet.length > 0 ? trade.wallet : "—";
       this.logger.log(
-        `Сделка: кошелёк=${walletLabel}, сумма=${trade.amount}, маркет=${trade.market} | актив=${trade.assetId}, сторона=${trade.side}, цена=${trade.price}`
+        `Сделка: кошелёк=${walletLabel}, сумма=${trade.amount}, маркет=${trade.market} | актив=${trade.assetId}, сторона=${trade.side}, цена=${trade.price}`,
       );
     }
   }
@@ -127,27 +132,33 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
       assetIds = selection.assetIds;
 
       this.logger.log(
-        `Топ-${selection.rows.length} маркетов (объём 24h с CLOB /markets + приоритет торгуемости); уникальных assets_ids: ${assetIds.length}`
+        `Топ-${selection.rows.length} маркетов (объём 24h с CLOB /markets + приоритет торгуемости); уникальных assets_ids: ${assetIds.length}`,
       );
-      if (selection.rows.length > 0 && selection.rows.every((r) => r.volume24hr === 0)) {
+      if (
+        selection.rows.length > 0 &&
+        selection.rows.every((r) => r.volume24hr === 0)
+      ) {
         this.logger.warn(
-          "У выбранных рынков объём 24h = 0: в ответе CLOB /markets поля объёма обычно нет — «топ по объёму» недоступен без другого API (например Gamma). Сортировка: приоритет accepting_orders / active / closed."
+          "У выбранных рынков объём 24h = 0: в ответе CLOB /markets поля объёма обычно нет — «топ по объёму» недоступен без другого API (например Gamma). Сортировка: приоритет accepting_orders / active / closed.",
         );
       }
       for (const row of selection.rows) {
         this.logger.log(
-          `  #${row.rank} vol24h=${row.volume24hr} tradePri=${row.tradabilityScore} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`
+          `  #${row.rank} vol24h=${row.volume24hr} tradePri=${row.tradabilityScore} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`,
         );
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+      const message =
+        error instanceof Error ? error.message : "Неизвестная ошибка";
       this.logger.error(`Ошибка загрузки маркетов для WS: ${message}`);
       this.scheduleReconnect();
       return;
     }
 
     if (assetIds.length === 0) {
-      this.logger.warn("Нет token_id для подписки (топ-20 маркетов пустой после фильтрации)");
+      this.logger.warn(
+        "Нет token_id для подписки (топ-20 маркетов пустой после фильтрации)",
+      );
       this.scheduleReconnect();
       return;
     }
@@ -168,9 +179,11 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
       };
       const subscribeJson = JSON.stringify(payload);
       this.logger.log(
-        `Отправка подписки market channel: type=market, assets_ids.length=${assetIds.length}`
+        `Отправка подписки market channel: type=market, assets_ids.length=${assetIds.length}`,
       );
-      this.logger.log(`Тело подписки (сырой JSON): ${subscribeJson.length > 1200 ? `${subscribeJson.slice(0, 1197)}...` : subscribeJson}`);
+      this.logger.log(
+        `Тело подписки (сырой JSON): ${subscribeJson.length > 1200 ? `${subscribeJson.slice(0, 1197)}...` : subscribeJson}`,
+      );
       this.rawLogSamplesLeft = 5;
       socket.send(subscribeJson);
       this.startPing(socket);
@@ -183,7 +196,9 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
     socket.on("close", (code, reason) => {
       this.stopPing();
       const reasonText = reason.length > 0 ? reason.toString() : "";
-      this.logger.warn(`WS закрыт (code=${code}${reasonText ? `, reason=${reasonText}` : ""}). Переподключение через ${RECONNECT_MS} мс`);
+      this.logger.warn(
+        `WS закрыт (code=${code}${reasonText ? `, reason=${reasonText}` : ""}). Переподключение через ${RECONNECT_MS} мс`,
+      );
       this.scheduleReconnect();
     });
 
