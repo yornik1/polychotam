@@ -6,6 +6,11 @@ import type { TradeEvent } from "../polymarket/dto/trade-event.js";
 import { Market } from "../markets/market.entity.js";
 import { Trade } from "./trade.entity.js";
 
+type HistoricalTradeEvent = TradeEvent & {
+  tradeId: string;
+};
+type TradeUpsertPayload = Parameters<Repository<Trade>["upsert"]>[0];
+
 /**
  * Событие last_trade_price не содержит полного CLOB Trade — поля без данных
  * заполняются заглушками с префиксом ws- / RECORDED_WS.
@@ -34,6 +39,12 @@ export class TradesService {
     }
 
     const market = await this.ensureMarketStub(conditionId);
+    const historicalEvent = this.asHistoricalTradeEvent(event);
+    if (historicalEvent !== null) {
+      await this.upsertHistoricalTrade(market, historicalEvent);
+      return;
+    }
+
     const id = this.buildWsTradeId(event);
     const matchTime = this.tradeTimestampToDate(event.timestamp);
     const wallet = event.wallet.trim() || "unknown";
@@ -65,6 +76,52 @@ export class TradesService {
     });
 
     await this.tradeRepository.save(trade);
+  }
+
+  private asHistoricalTradeEvent(event: TradeEvent): HistoricalTradeEvent | null {
+    const tradeId = event.tradeId?.trim();
+    if (tradeId === undefined || tradeId.length === 0) {
+      return null;
+    }
+
+    return {
+      ...event,
+      tradeId,
+    };
+  }
+
+  private async upsertHistoricalTrade(
+    market: Market,
+    event: HistoricalTradeEvent,
+  ): Promise<void> {
+    const matchTime = this.tradeTimestampToDate(event.timestamp);
+    const owner =
+      event.owner?.trim() || event.wallet.trim() || event.makerAddress?.trim() || "unknown";
+    const makerAddress = event.makerAddress?.trim() || event.wallet.trim() || owner;
+
+    const trade = {
+      id: event.tradeId,
+      trade_id: event.tradeId,
+      taker_order_id: event.takerOrderId?.trim() || event.tradeId,
+      market: market.condition_id,
+      asset_id: event.assetId,
+      side: event.side,
+      size: event.amount,
+      fee_rate_bps: event.feeRateBps?.trim() || "0",
+      price: event.price,
+      status: event.status?.trim() || "MATCHED",
+      match_time: matchTime,
+      last_update: matchTime,
+      outcome: event.outcome?.trim() || "",
+      bucket_index: event.bucketIndex ?? 0,
+      owner,
+      maker_address: makerAddress,
+      maker_orders: event.makerOrders ?? [],
+      transaction_hash: event.transactionHash?.trim() || "",
+      trader_side: event.traderSide ?? "TAKER",
+    } as unknown as TradeUpsertPayload;
+
+    await this.tradeRepository.upsert(trade, ["trade_id"]);
   }
 
   private buildWsTradeId(event: TradeEvent): string {

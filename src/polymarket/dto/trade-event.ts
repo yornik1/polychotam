@@ -3,6 +3,7 @@
  * В payload Polymarket нет адреса кошелька — поле wallet оставляем пустым.
  */
 export type TradeSide = "BUY" | "SELL";
+export type TradeTraderSide = "TAKER" | "MAKER";
 
 export interface TradeEvent {
   /** Адрес трейдера; для last_trade_price сейчас не приходит — пустая строка. */
@@ -16,4 +17,16 @@ export interface TradeEvent {
   /** clob token_id (поле asset_id в WS). */
   assetId: string;
   timestamp: number;
+  /** Канонический trade id из historical REST API. */
+  tradeId?: string;
+  owner?: string;
+  takerOrderId?: string;
+  makerAddress?: string;
+  transactionHash?: string;
+  outcome?: string;
+  bucketIndex?: number;
+  status?: string;
+  traderSide?: TradeTraderSide;
+  feeRateBps?: string;
+  makerOrders?: unknown[];
 }

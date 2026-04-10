@@ -3,7 +3,6 @@ import {
   Injectable,
   Logger,
   OnModuleDestroy,
-  OnModuleInit,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Queue } from "bullmq";
@@ -23,7 +22,7 @@ const RECONNECT_MS = 5000;
 const PING_INTERVAL_MS = 10_000;
 
 @Injectable()
-export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
+export class PolymarketWsClient implements OnModuleDestroy {
   private readonly logger = new Logger(PolymarketWsClient.name);
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -39,8 +38,8 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
     private readonly tradesQueue: Queue<TradeEvent>,
   ) {}
 
-  onModuleInit(): void {
-    void this.runFullConnectCycle();
+  async connect(assetIds?: readonly string[]): Promise<void> {
+    await this.runFullConnectCycle(assetIds);
   }
 
   onModuleDestroy(): void {
@@ -99,16 +98,20 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // const isEmptyJsonArray = trimmed === "[]";
-    // if (isEmptyJsonArray) {
-    //   this.logger.debug("WS сырой кадр: [] (пустой массив от upstream, часто сразу после подписки)");
-    // } else if (this.rawLogSamplesLeft > 0) {
-    //   this.rawLogSamplesLeft -= 1;
-    //   const preview = rawData.length > 800 ? `${rawData.slice(0, 797)}...` : rawData;
-    //   this.logger.log(`WS сырой кадр (пример): ${preview}`);
-    // } else {
-    //   this.logger.debug(`WS сырой кадр: ${rawData.length > 400 ? `${rawData.slice(0, 397)}...` : rawData}`);
-    // }
+    const isEmptyJsonArray = trimmed === "[]";
+    if (isEmptyJsonArray) {
+      this.logger.debug(
+        "WS сырой кадр: [] (пустой массив от upstream, часто сразу после подписки)",
+      );
+    } else if (this.rawLogSamplesLeft > 0) {
+      this.rawLogSamplesLeft -= 1;
+      const preview = rawData.length > 800 ? `${rawData.slice(0, 797)}...` : rawData;
+      this.logger.log(`WS сырой кадр (пример): ${preview}`);
+    } else {
+      this.logger.debug(
+        `WS сырой кадр: ${rawData.length > 400 ? `${rawData.slice(0, 397)}...` : rawData}`,
+      );
+    }
 
     let parsed: unknown;
     try {
@@ -132,41 +135,49 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async runFullConnectCycle(): Promise<void> {
+  private async runFullConnectCycle(
+    initialAssetIds?: readonly string[],
+  ): Promise<void> {
     if (this.isDestroyed) {
       return;
     }
 
     this.teardownSocket();
 
-    let assetIds: readonly string[] = [];
-    try {
-      const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
-      const selection = buildTopMarketsWsSelection(rawMarkets, 20);
-      assetIds = selection.assetIds;
+    let assetIds: readonly string[] = initialAssetIds ?? [];
+    if (assetIds.length === 0) {
+      try {
+        const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
+        const selection = buildTopMarketsWsSelection(rawMarkets, 20);
+        assetIds = selection.assetIds;
 
-      this.logger.log(
-        `Топ-${selection.rows.length} маркетов (объём 24h с CLOB /markets + приоритет торгуемости); уникальных assets_ids: ${assetIds.length}`,
-      );
-      if (
-        selection.rows.length > 0 &&
-        selection.rows.every((r) => r.volume24hr === 0)
-      ) {
-        this.logger.warn(
-          "У выбранных рынков объём 24h = 0: в ответе CLOB /markets поля объёма обычно нет — «топ по объёму» недоступен без другого API (например Gamma). Сортировка: приоритет accepting_orders / active / closed.",
-        );
-      }
-      for (const row of selection.rows) {
         this.logger.log(
-          `  #${row.rank} vol24h=${row.volume24hr} tradePri=${row.tradabilityScore} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`,
+          `Топ-${selection.rows.length} маркетов (объём 24h с CLOB /markets + приоритет торгуемости); уникальных assets_ids: ${assetIds.length}`,
         );
+        if (
+          selection.rows.length > 0 &&
+          selection.rows.every((r) => r.volume24hr === 0)
+        ) {
+          this.logger.warn(
+            "У выбранных рынков объём 24h = 0: в ответе CLOB /markets поля объёма обычно нет — «топ по объёму» недоступен без другого API (например Gamma). Сортировка: приоритет accepting_orders / active / closed.",
+          );
+        }
+        for (const row of selection.rows) {
+          this.logger.log(
+            `  #${row.rank} vol24h=${row.volume24hr} tradePri=${row.tradabilityScore} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`,
+          );
+        }
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Неизвестная ошибка";
+        this.logger.error(`Ошибка загрузки маркетов для WS: ${message}`);
+        this.scheduleReconnect();
+        return;
       }
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Неизвестная ошибка";
-      this.logger.error(`Ошибка загрузки маркетов для WS: ${message}`);
-      this.scheduleReconnect();
-      return;
+    } else {
+      this.logger.log(
+        `Использую предрассчитанный набор assets_ids для startup WS: ${assetIds.length}`,
+      );
     }
 
     if (assetIds.length === 0) {

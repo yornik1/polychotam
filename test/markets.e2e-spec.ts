@@ -86,7 +86,7 @@ describe("GET /markets (e2e)", () => {
       .overrideProvider(PolymarketHttpClient)
       .useValue({ fetchMarkets })
       .overrideProvider(PolymarketWsClient)
-      .useValue({ onModuleInit: vi.fn(), onModuleDestroy: vi.fn() })
+      .useValue({ connect: vi.fn(), onModuleDestroy: vi.fn() })
       .compile();
 
     app = moduleRef.createNestApplication();

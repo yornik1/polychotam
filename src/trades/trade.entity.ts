@@ -21,6 +21,9 @@ export class Trade {
   @PrimaryColumn({ type: "varchar", length: 256 })
   id!: string;
 
+  @Column({ type: "varchar", length: 256, unique: true, nullable: true })
+  trade_id!: string | null;
+
   @Column({ type: "varchar", length: 256 })
   taker_order_id!: string;
 

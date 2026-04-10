@@ -151,4 +151,68 @@ describe("TradesService.saveFromWsTradeEvent", () => {
 
     expect(tradeSave).not.toHaveBeenCalled();
   });
+
+  it("для historical payload использует upsert по каноническому trade_id", async () => {
+    const conditionId =
+      "0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347";
+    const savedMarket = { condition_id: conditionId } as Market;
+
+    const marketFindOne = vi.fn().mockResolvedValue(savedMarket);
+    const tradeFindOne = vi.fn();
+    const tradeSave = vi.fn();
+    const tradeUpsert = vi.fn().mockResolvedValue(undefined);
+
+    const service = new TradesService(
+      {
+        findOne: tradeFindOne,
+        create: vi.fn((t: Trade) => t),
+        save: tradeSave,
+        upsert: tradeUpsert,
+      } as unknown as Repository<Trade>,
+      {
+        findOne: marketFindOne,
+        create: vi.fn(),
+        save: vi.fn(),
+      } as unknown as Repository<Market>,
+    );
+
+    const historicalEvent = {
+      wallet: "0xowner",
+      amount: "219.217767",
+      side: "BUY" as const,
+      price: "0.456",
+      market: conditionId,
+      assetId:
+        "114122071509644379678018727908709560226618148003371446110114509806601493071694",
+      timestamp: 1750428146322,
+      tradeId: "trade-123",
+      takerOrderId: "taker-order-123",
+      makerAddress: "0xmaker",
+      transactionHash:
+        "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      outcome: "YES",
+      bucketIndex: 0,
+      status: "MATCHED",
+      traderSide: "TAKER" as const,
+    };
+
+    await service.saveFromWsTradeEvent(
+      historicalEvent as unknown as TradeEvent,
+    );
+
+    expect(tradeUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trade_id: "trade-123",
+        taker_order_id: "taker-order-123",
+        maker_address: "0xmaker",
+        owner: "0xowner",
+        transaction_hash:
+          "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        status: "MATCHED",
+      }),
+      ["trade_id"],
+    );
+    expect(tradeSave).not.toHaveBeenCalled();
+    expect(tradeFindOne).not.toHaveBeenCalled();
+  });
 });
