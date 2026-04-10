@@ -215,4 +215,28 @@ describe("TradesService.saveFromWsTradeEvent", () => {
     expect(tradeSave).not.toHaveBeenCalled();
     expect(tradeFindOne).not.toHaveBeenCalled();
   });
+
+  it("updateMakerAddress обновляет maker_address и owner у записанной WS-сделки", async () => {
+    const tradeUpdate = vi.fn().mockResolvedValue(undefined);
+    const service = new TradesService(
+      {
+        update: tradeUpdate,
+        findOne: vi.fn(),
+        create: vi.fn(),
+        save: vi.fn(),
+      } as unknown as Repository<Trade>,
+      {
+        findOne: vi.fn(),
+        create: vi.fn(),
+        save: vi.fn(),
+      } as unknown as Repository<Market>,
+    );
+
+    await service.updateMakerAddress("ws:trade-1", "0xmaker");
+
+    expect(tradeUpdate).toHaveBeenCalledWith(
+      { id: "ws:trade-1" },
+      { maker_address: "0xmaker", owner: "0xmaker" },
+    );
+  });
 });

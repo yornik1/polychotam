@@ -5,8 +5,11 @@ import {
   Logger,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
 import { mapPolymarketMarket } from "./market.mapper.js";
 import { MarketsResponseDto } from "./dto/markets-response.dto.js";
+import { Market } from "./market.entity.js";
 import {
   PolymarketInvalidPayloadError,
   PolymarketHttpClient,
@@ -21,8 +24,16 @@ export class MarketsService {
 
   constructor(
     @Inject(PolymarketHttpClient)
-    private readonly polymarketHttpClient: Pick<PolymarketHttpClient, "fetchMarkets">
+    private readonly polymarketHttpClient: Pick<PolymarketHttpClient, "fetchMarkets">,
+    @InjectRepository(Market)
+    private readonly marketRepository: Repository<Market>,
   ) {}
+
+  async findBySlug(slug: string): Promise<Market | null> {
+    return this.marketRepository.findOne({
+      where: { market_slug: slug.trim() },
+    });
+  }
 
   async getMarkets(): Promise<MarketsResponseDto> {
     this.logger.log("Начинаю загрузку маркетов из Polymarket");

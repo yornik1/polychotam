@@ -5,8 +5,12 @@ import type { WalletUpsertInput } from "../types/contracts.js";
 import { Trade } from "../trades/trade.entity.js";
 import { Wallet } from "./wallet.entity.js";
 
+const TOP_WALLETS_CACHE_TTL_MS = 60_000;
+
 @Injectable()
 export class WalletsService {
+  private topWalletsCache: { expiresAt: number; addresses: Set<string> } | null = null;
+
   constructor(
     @InjectRepository(Wallet)
     private readonly walletRepository: Repository<Wallet>,
@@ -25,6 +29,7 @@ export class WalletsService {
       },
       ["address"],
     );
+    this.topWalletsCache = null;
   }
 
   async recalculate(address: string): Promise<void> {
@@ -97,6 +102,24 @@ export class WalletsService {
       .orderBy("wallet.win_rate", "DESC")
       .limit(limit)
       .getMany();
+  }
+
+  async isTopWallet(address: string): Promise<boolean> {
+    const normalizedAddress = address.trim();
+    if (normalizedAddress.length === 0) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (this.topWalletsCache === null || this.topWalletsCache.expiresAt <= now) {
+      const wallets = await this.getTopWallets(10);
+      this.topWalletsCache = {
+        expiresAt: now + TOP_WALLETS_CACHE_TTL_MS,
+        addresses: new Set(wallets.map((wallet) => wallet.address.trim())),
+      };
+    }
+
+    return this.topWalletsCache.addresses.has(normalizedAddress);
   }
 
   private formatDecimal(value: number): string {

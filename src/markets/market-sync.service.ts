@@ -8,6 +8,22 @@ import {
 } from "../polymarket/dto/polymarket-simplified-market.raw.js";
 import { Market } from "./market.entity.js";
 
+type MarketSnapshotRow = {
+  condition_id: string;
+  question: string;
+  market_slug: string;
+  tokens: Record<string, unknown>[];
+  winning_token_id: string | null;
+  winning_outcome: string | null;
+  active: boolean;
+  closed: boolean;
+  accepting_orders: boolean | null;
+  liquidity: number;
+  volume24hr: number;
+  end_date_iso: string | null;
+  internal_synced_at: Date;
+};
+
 @Injectable()
 export class MarketSyncService {
   constructor(
@@ -31,16 +47,17 @@ export class MarketSyncService {
     );
 
     const syncedAt = new Date();
-    await this.marketRepository.upsert(
-      markets.map((market) => {
+    const deduplicatedMarkets = new Map<string, MarketSnapshotRow>();
+
+    for (const market of markets) {
         const conditionId = this.normalizeString(market.condition_id);
         const resolvedToken = this.resolveWinningToken(simplifiedByConditionId.get(conditionId));
 
-        return {
+        deduplicatedMarkets.set(conditionId, {
           condition_id: conditionId,
           question: this.normalizeString(market.question),
           market_slug: this.normalizeString(market.market_slug),
-          tokens: Array.isArray(market.tokens) ? market.tokens : [],
+          tokens: this.normalizeTokens(market.tokens),
           winning_token_id: resolvedToken?.token_id ?? null,
           winning_outcome: resolvedToken?.outcome ?? null,
           active: this.normalizeBoolean(market.active),
@@ -50,8 +67,11 @@ export class MarketSyncService {
           volume24hr: this.normalizeNumber(market.volume24hr),
           end_date_iso: this.normalizeNullableString(market.end_date_iso),
           internal_synced_at: syncedAt,
-        } satisfies Partial<Market>;
-      }),
+        });
+    }
+
+    await this.marketRepository.upsert(
+      [...deduplicatedMarkets.values()],
       ["condition_id"],
     );
   }
@@ -128,5 +148,16 @@ export class MarketSyncService {
     }
 
     return 0;
+  }
+
+  private normalizeTokens(value: unknown): Record<string, unknown>[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter(
+      (token): token is Record<string, unknown> =>
+        typeof token === "object" && token !== null,
+    );
   }
 }

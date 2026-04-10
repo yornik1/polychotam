@@ -1,12 +1,18 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TelegrafModule } from "nestjs-telegraf";
+import { MarketsModule } from "../markets/markets.module.js";
+import { WalletsModule } from "../wallets/wallets.module.js";
 import { TelegramController } from "./telegram.controller.js";
+import { TradeAlertService } from "./trade-alert.service.js";
+import { TelegramUpdate } from "./telegram.update.js";
 import { TelegramService } from "./telegram.service.js";
 
 @Module({
   imports: [
     ConfigModule,
+    forwardRef(() => MarketsModule),
+    WalletsModule,
     TelegrafModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
@@ -15,7 +21,7 @@ import { TelegramService } from "./telegram.service.js";
     })
   ],
   controllers: [TelegramController],
-  providers: [TelegramService],
-  exports: [TelegramService]
+  providers: [TelegramService, TelegramUpdate, TradeAlertService],
+  exports: [TelegramService, TradeAlertService]
 })
 export class TelegramModule {}

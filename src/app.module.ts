@@ -7,6 +7,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { AppController } from "./app.controller.js";
 import { AppService } from "./app.service.js";
 import { buildBullMqConfig } from "./config/bullmq.config.js";
+import { ENV_FILE_PATHS } from "./config/env-files.js";
 import { buildTypeOrmConfig } from "./config/typeorm.config.js";
 import { CommonModule } from "./common/common.module.js";
 import { MarketsModule } from "./markets/markets.module.js";
@@ -20,7 +21,7 @@ import { WalletsModule } from "./wallets/wallets.module.js";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [".env", ".env.local"],
+      envFilePath: [...ENV_FILE_PATHS],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],

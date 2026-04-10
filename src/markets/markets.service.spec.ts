@@ -5,18 +5,43 @@ import {
   PolymarketUpstreamStatusError,
 } from "../polymarket/polymarket-http.client.js";
 import { PolymarketMarketRaw } from "../polymarket/dto/polymarket-market.raw.js";
+import { Repository } from "typeorm";
+import { Market } from "./market.entity.js";
 import { MarketsService } from "./markets.service.js";
 
 describe("MarketsService", () => {
   function createService() {
     const fetchMarkets = vi.fn<() => Promise<PolymarketMarketRaw[]>>();
+    const findOne = vi.fn();
     const polymarketHttpClient = {
       fetchMarkets,
     };
-    const service = new MarketsService(polymarketHttpClient);
+    const marketRepository = {
+      findOne,
+    } as Pick<Repository<Market>, "findOne">;
+    const service = new MarketsService(
+      polymarketHttpClient,
+      marketRepository as Repository<Market>,
+    );
 
-    return { service, fetchMarkets };
+    return { service, fetchMarkets, findOne };
   }
+
+  it("findBySlug ищет маркет в локальной таблице по market_slug", async () => {
+    const { service, findOne } = createService();
+    const market = {
+      condition_id: "0xmarket1",
+      market_slug: "trump-win",
+    } as Market;
+    findOne.mockResolvedValue(market);
+
+    const result = await service.findBySlug("trump-win");
+
+    expect(findOne).toHaveBeenCalledWith({
+      where: { market_slug: "trump-win" },
+    });
+    expect(result).toBe(market);
+  });
 
   it("маппит 2 маркета и возвращает консистентный meta.total", async () => {
     const { service, fetchMarkets } = createService();

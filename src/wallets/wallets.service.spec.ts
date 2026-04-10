@@ -164,4 +164,47 @@ describe("WalletsService", () => {
     expect(queryBuilder.limit).toHaveBeenCalledWith(10);
     expect(result).toEqual(rows);
   });
+
+  it("isTopWallet кеширует top-10 на TTL и не дёргает БД повторно", async () => {
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValue(1_000);
+    const { service, getMany } = createService();
+    getMany.mockResolvedValue([
+      {
+        address: "0xtop",
+        total_won: "10",
+        total_lost: "1",
+        win_rate: "0.9",
+        trade_count: 12,
+      },
+    ]);
+
+    await expect(service.isTopWallet("0xtop")).resolves.toBe(true);
+
+    nowSpy.mockReturnValue(1_500);
+    await expect(service.isTopWallet("0xtop")).resolves.toBe(true);
+
+    expect(getMany).toHaveBeenCalledTimes(1);
+    nowSpy.mockRestore();
+  });
+
+  it("isTopWallet возвращает false для адреса вне кешированного top-10", async () => {
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValue(2_000);
+    const { service, getMany } = createService();
+    getMany.mockResolvedValue([
+      {
+        address: "0xtop",
+        total_won: "10",
+        total_lost: "1",
+        win_rate: "0.9",
+        trade_count: 12,
+      },
+    ]);
+
+    await expect(service.isTopWallet("0xother")).resolves.toBe(false);
+
+    expect(getMany).toHaveBeenCalledTimes(1);
+    nowSpy.mockRestore();
+  });
 });

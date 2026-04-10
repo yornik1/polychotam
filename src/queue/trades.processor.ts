@@ -2,9 +2,13 @@ import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
 import { ConfigService } from "@nestjs/config";
 import { Job, Queue } from "bullmq";
 import type { TradeEvent } from "../polymarket/dto/trade-event.js";
-import type { WalletRecalculateJob } from "../types/contracts.js";
+import type { TradeEnrichmentJob, WalletRecalculateJob } from "../types/contracts.js";
+import { TradeAlertService } from "../telegram/trade-alert.service.js";
 import { TradesService } from "../trades/trades.service.js";
+import { buildWsTradeRecordId } from "../trades/trade-id.util.js";
 import {
+  TRADE_ENRICHMENT_JOB_PROCESS,
+  TRADE_ENRICHMENT_QUEUE_NAME,
   TRADES_JOB_PROCESS,
   TRADES_QUEUE_NAME,
   WALLET_ANALYTICS_JOB_RECALCULATE,
@@ -17,6 +21,9 @@ export class TradesProcessor extends WorkerHost {
     private readonly tradesService: TradesService,
     @InjectQueue(WALLET_ANALYTICS_QUEUE_NAME)
     private readonly walletAnalyticsQueue: Queue<WalletRecalculateJob>,
+    @InjectQueue(TRADE_ENRICHMENT_QUEUE_NAME)
+    private readonly tradeEnrichmentQueue: Queue<TradeEnrichmentJob>,
+    private readonly tradeAlertService: TradeAlertService,
     private readonly configService: ConfigService,
   ) {
     super();
@@ -42,7 +49,29 @@ export class TradesProcessor extends WorkerHost {
         { address },
         { jobId: `wallet-recalculate:${address}` },
       );
+      await this.tradeAlertService.maybeSendTradeAlert({
+        address,
+        market: job.data.market,
+        side: job.data.side,
+        amount: job.data.amount,
+      });
+      return;
     }
+
+    const tradeRecordId = buildWsTradeRecordId(job.data);
+    await this.tradeEnrichmentQueue.add(
+      TRADE_ENRICHMENT_JOB_PROCESS,
+      {
+        tradeRecordId,
+        market: job.data.market,
+        assetId: job.data.assetId,
+        side: job.data.side,
+        amount: job.data.amount,
+        price: job.data.price,
+        timestamp: job.data.timestamp,
+      },
+      { jobId: `trade-enrichment:${tradeRecordId}` },
+    );
   }
 
   /**

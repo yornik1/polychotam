@@ -122,4 +122,57 @@ describe("MarketSyncService", () => {
       ["condition_id"],
     );
   });
+
+  it("дедуплицирует маркеты по condition_id перед bulk upsert", async () => {
+    const fetchMarkets = vi.fn<() => Promise<PolymarketMarketRaw[]>>().mockResolvedValue([
+      {
+        condition_id: "0xdup",
+        market_slug: "first-market",
+        question: "First version?",
+        tokens: [{ token_id: "token-yes", outcome: "YES" }],
+        active: true,
+        closed: false,
+        accepting_orders: true,
+        liquidity: 1,
+        volume24hr: 2,
+        end_date_iso: null,
+      },
+      {
+        condition_id: "0xdup",
+        market_slug: "second-market",
+        question: "Second version?",
+        tokens: [{ token_id: "token-yes", outcome: "YES" }],
+        active: false,
+        closed: true,
+        accepting_orders: false,
+        liquidity: 10,
+        volume24hr: 20,
+        end_date_iso: "2026-12-31T00:00:00Z",
+      },
+    ]);
+    const fetchSimplifiedMarkets =
+      vi.fn<() => Promise<PolymarketSimplifiedMarketRaw[]>>().mockResolvedValue([]);
+    const upsert = vi.fn().mockResolvedValue(undefined);
+
+    const service = new MarketSyncService(
+      {
+        fetchMarkets,
+        fetchSimplifiedMarkets,
+      } as unknown as PolymarketHttpClient,
+      { upsert } as unknown as Repository<Market>,
+    );
+
+    await service.syncSnapshot();
+
+    expect(upsert).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          condition_id: "0xdup",
+          market_slug: "second-market",
+          question: "Second version?",
+        }),
+      ],
+      ["condition_id"],
+    );
+  });
 });

@@ -39,3 +39,13 @@ export interface MarketResolution {
 export interface WalletRecalculateJob {
   address: string;
 }
+
+export interface TradeEnrichmentJob {
+  tradeRecordId: string;
+  market: string;
+  assetId: string;
+  side: TradeSide;
+  amount: string;
+  price: string;
+  timestamp: number;
+}

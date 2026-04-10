@@ -4,6 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import type { TradeEvent } from "../polymarket/dto/trade-event.js";
 import { Market } from "../markets/market.entity.js";
+import { buildWsTradeRecordId } from "./trade-id.util.js";
 import { Trade } from "./trade.entity.js";
 
 type HistoricalTradeEvent = TradeEvent & {
@@ -45,7 +46,7 @@ export class TradesService {
       return;
     }
 
-    const id = this.buildWsTradeId(event);
+    const id = buildWsTradeRecordId(event);
     const matchTime = this.tradeTimestampToDate(event.timestamp);
     const wallet = event.wallet.trim() || "unknown";
 
@@ -76,6 +77,18 @@ export class TradesService {
     });
 
     await this.tradeRepository.save(trade);
+  }
+
+  async updateMakerAddress(tradeRecordId: string, makerAddress: string): Promise<void> {
+    const normalizedAddress = makerAddress.trim();
+    if (tradeRecordId.trim().length === 0 || normalizedAddress.length === 0) {
+      return;
+    }
+
+    await this.tradeRepository.update(
+      { id: tradeRecordId },
+      { maker_address: normalizedAddress, owner: normalizedAddress },
+    );
   }
 
   private asHistoricalTradeEvent(event: TradeEvent): HistoricalTradeEvent | null {
@@ -122,12 +135,6 @@ export class TradesService {
     } as unknown as TradeUpsertPayload;
 
     await this.tradeRepository.upsert(trade, ["trade_id"]);
-  }
-
-  private buildWsTradeId(event: TradeEvent): string {
-    const raw = `${event.market}|${event.assetId}|${event.timestamp}|${event.side}|${event.price}|${event.amount}`;
-    const hash = createHash("sha256").update(raw).digest("hex");
-    return `ws:${hash}`;
   }
 
   /** Секунды или миллисекунды от upstream — эвристика как у многих WS API. */
