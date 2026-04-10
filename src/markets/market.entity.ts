@@ -28,6 +28,12 @@ export class Market {
   @Column({ type: "jsonb" })
   tokens!: unknown;
 
+  @Column({ type: "varchar", length: 256, nullable: true })
+  winning_token_id!: string | null;
+
+  @Column({ type: "varchar", length: 256, nullable: true })
+  winning_outcome!: string | null;
+
   @Column({ type: "boolean" })
   active!: boolean;
 

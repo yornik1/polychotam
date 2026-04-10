@@ -17,6 +17,9 @@ export class Wallet {
   @Column({ type: "numeric", precision: 10, scale: 6, default: "0" })
   win_rate!: string;
 
+  @Column({ type: "int", default: 0 })
+  trade_count!: number;
+
   @UpdateDateColumn({ type: "timestamptz", name: "internal_updated_at" })
   internal_updated_at!: Date;
 }

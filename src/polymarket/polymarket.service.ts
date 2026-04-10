@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { MarketSyncService } from "../markets/market-sync.service.js";
 import { buildTopMarketsWsSelection } from "./polymarket-top-markets.js";
 import { BackfillService } from "./backfill.service.js";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
@@ -10,11 +11,14 @@ export class PolymarketService implements OnModuleInit {
 
   constructor(
     private readonly polymarketHttpClient: PolymarketHttpClient,
+    private readonly marketSyncService: MarketSyncService,
     private readonly backfillService: BackfillService,
     private readonly polymarketWsClient: PolymarketWsClient,
   ) {}
 
   async onModuleInit(): Promise<void> {
+    await this.marketSyncService.syncSnapshot();
+
     const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
     const selection = buildTopMarketsWsSelection(rawMarkets, 20);
 

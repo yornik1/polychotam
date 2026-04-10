@@ -8,6 +8,6 @@ alwaysApply: true
 # MVP — Polychotam
 
 Notion-борда: https://www.notion.so/9bdc07518c0546eaa9aa84e6f9bd0483
-Задача: https://www.notion.so/33b7b5e2ccce81c682b0ee4fbb3d0500 (BullMQ очереди)
+Задача: https://www.notion.so/33b7b5e2ccce81e489c5db7a42397080 (Аналитика)
 
 Типы: `src/types/contracts.ts`. Подход: TDD.

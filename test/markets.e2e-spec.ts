@@ -22,6 +22,7 @@ import { PolymarketWsClient } from "../src/polymarket/polymarket-ws.client.js";
 import { Trade } from "../src/trades/trade.entity.js";
 import { Wallet } from "../src/wallets/wallet.entity.js";
 import { TradesProcessor } from "../src/queue/trades.processor.js";
+import { WalletAnalyticsProcessor } from "../src/queue/wallet-analytics.processor.js";
 
 /** Без @Processor — BullMQ Worker в e2e не поднимаем (нет Redis). */
 class E2eTradesProcessorStub extends WorkerHost {
@@ -31,6 +32,7 @@ class E2eTradesProcessorStub extends WorkerHost {
 describe("GET /markets (e2e)", () => {
   let app: INestApplication;
   const fetchMarkets = vi.fn<() => Promise<unknown[]>>();
+  const fetchSimplifiedMarkets = vi.fn<() => Promise<unknown[]>>();
 
   beforeAll(async () => {
     vi.stubEnv("DATABASE_URL", "postgres://test:test@127.0.0.1:5432/polychotam_test");
@@ -54,7 +56,23 @@ describe("GET /markets (e2e)", () => {
       },
     ]);
 
-    const emptyRepo = {} as Repository<Market>;
+    fetchSimplifiedMarkets.mockResolvedValue([
+      {
+        condition_id: "0xmarket1",
+        tokens: [
+          { token_id: "token-yes", outcome: "YES", winner: false },
+          { token_id: "token-no", outcome: "NO", winner: false },
+        ],
+        active: true,
+        closed: false,
+        accepting_orders: true,
+        archived: false,
+      },
+    ]);
+
+    const emptyRepo = {
+      upsert: vi.fn().mockResolvedValue(undefined),
+    } as Partial<Repository<Market>>;
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -79,12 +97,22 @@ describe("GET /markets (e2e)", () => {
         client: Promise.resolve({ info: vi.fn().mockResolvedValue("") }),
         getJobCounts: vi.fn().mockResolvedValue({}),
       })
+      .overrideProvider(getQueueToken("wallet-analytics"))
+      .useValue({
+        add: vi.fn(),
+        name: "wallet-analytics",
+        metaValues: { version: "bullmq" },
+        client: Promise.resolve({ info: vi.fn().mockResolvedValue("") }),
+        getJobCounts: vi.fn().mockResolvedValue({}),
+      })
       .overrideProvider(TradesProcessor)
+      .useClass(E2eTradesProcessorStub)
+      .overrideProvider(WalletAnalyticsProcessor)
       .useClass(E2eTradesProcessorStub)
       .overrideProvider(getBotToken())
       .useValue({ launch: vi.fn(), stop: vi.fn(), use: vi.fn() })
       .overrideProvider(PolymarketHttpClient)
-      .useValue({ fetchMarkets })
+      .useValue({ fetchMarkets, fetchSimplifiedMarkets })
       .overrideProvider(PolymarketWsClient)
       .useValue({ connect: vi.fn(), onModuleDestroy: vi.fn() })
       .compile();

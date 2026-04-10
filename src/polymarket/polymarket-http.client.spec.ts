@@ -254,6 +254,100 @@ describe("PolymarketHttpClient", () => {
     );
   });
 
+  it("fetchSimplifiedMarkets возвращает closed market с winner-флагом токена", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: [
+          {
+            condition_id: "0xresolved",
+            tokens: [
+              { token_id: "token-yes", outcome: "YES", winner: true },
+              { token_id: "token-no", outcome: "NO", winner: false }
+            ],
+            active: false,
+            closed: true,
+            archived: false,
+            accepting_orders: false
+          }
+        ],
+        next_cursor: "LTE="
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        PolymarketHttpClient,
+        {
+          provide: ConfigService,
+          useValue: new TestConfigService({
+            POLYMARKET_REST_URL: "https://clob.polymarket.com"
+          })
+        }
+      ]
+    }).compile();
+
+    const client = moduleRef.get(PolymarketHttpClient);
+    const result = await client.fetchSimplifiedMarkets();
+
+    expect(fetchMock).toHaveBeenCalledWith("https://clob.polymarket.com/simplified-markets?next_cursor=MA==");
+    expect(result).toEqual([
+      expect.objectContaining({
+        condition_id: "0xresolved",
+        closed: true,
+        tokens: [
+          expect.objectContaining({
+            token_id: "token-yes",
+            outcome: "YES",
+            winner: true
+          }),
+          expect.objectContaining({
+            token_id: "token-no",
+            outcome: "NO",
+            winner: false
+          })
+        ]
+      })
+    ]);
+  });
+
+  it("fetchSimplifiedMarkets выбрасывает ошибку при невалидном tokens payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: [
+          {
+            condition_id: "0xbroken",
+            tokens: [null],
+            active: false,
+            closed: true
+          }
+        ],
+        next_cursor: "LTE="
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        PolymarketHttpClient,
+        {
+          provide: ConfigService,
+          useValue: new TestConfigService({
+            POLYMARKET_REST_URL: "https://clob.polymarket.com"
+          })
+        }
+      ]
+    }).compile();
+
+    const client = moduleRef.get(PolymarketHttpClient);
+
+    await expect(client.fetchSimplifiedMarkets()).rejects.toBeInstanceOf(
+      PolymarketInvalidPayloadError
+    );
+  });
+
   it("классифицирует undici ConnectTimeoutError как PolymarketHttpTimeoutError", async () => {
     const connectTimeoutError = Object.assign(new Error("connect timeout"), {
       name: "ConnectTimeoutError",

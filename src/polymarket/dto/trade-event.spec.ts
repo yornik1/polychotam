@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TradeEvent } from "./trade-event.js";
+import type { TradeEvent } from "../../types/contracts.js";
 
 describe("TradeEvent", () => {
   it("допускает валидный объект сделки", () => {

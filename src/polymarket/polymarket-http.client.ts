@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ClobClient } from "@polymarket/clob-client";
 import { PolymarketMarketRaw } from "./dto/polymarket-market.raw.js";
+import { PolymarketSimplifiedMarketRaw } from "./dto/polymarket-simplified-market.raw.js";
 
 const DEFAULT_HTTP_TIMEOUT_MS = 10000;
 const DEFAULT_POLYMARKET_CLOB_URL = "https://clob.polymarket.com";
@@ -62,6 +63,20 @@ export class PolymarketHttpClient {
     }
   }
 
+  async fetchSimplifiedMarkets(): Promise<PolymarketSimplifiedMarketRaw[]> {
+    const response = await this.withTimeout(
+      fetch(`${this.host}/simplified-markets?next_cursor=${INITIAL_CURSOR}`)
+    );
+
+    if (!response.ok) {
+      throw new PolymarketUpstreamStatusError(response.status);
+    }
+
+    const payload = await response.json();
+    const rawMarkets = this.extractMarkets(payload);
+    return this.validateSimplifiedMarkets(rawMarkets);
+  }
+
   private resolveHost(): string {
     const host = this.configService.get<string>("POLYMARKET_REST_URL");
     if (typeof host !== "string" || host.trim() === "") {
@@ -105,6 +120,29 @@ export class PolymarketHttpClient {
       );
     }
     return payload as PolymarketMarketRaw[];
+  }
+
+  private validateSimplifiedMarkets(payload: unknown[]): PolymarketSimplifiedMarketRaw[] {
+    const hasInvalidElement = payload.some((item: unknown) => {
+      if (item === null || typeof item !== "object") {
+        return true;
+      }
+
+      const tokens = (item as { tokens?: unknown }).tokens;
+      if (!Array.isArray(tokens)) {
+        return true;
+      }
+
+      return tokens.some((token: unknown) => token === null || typeof token !== "object");
+    });
+
+    if (hasInvalidElement) {
+      throw new PolymarketInvalidPayloadError(
+        "Polymarket simplified markets response contains invalid market item"
+      );
+    }
+
+    return payload as PolymarketSimplifiedMarketRaw[];
   }
 
   private resolveTimeoutMs(): number {
