@@ -35,6 +35,12 @@ export class MarketsService {
     });
   }
 
+  async findByConditionId(conditionId: string): Promise<Market | null> {
+    return this.marketRepository.findOne({
+      where: { condition_id: conditionId.trim() },
+    });
+  }
+
   async getMarkets(): Promise<MarketsResponseDto> {
     this.logger.log("Начинаю загрузку маркетов из Polymarket");
 

@@ -43,6 +43,22 @@ describe("MarketsService", () => {
     expect(result).toBe(market);
   });
 
+  it("findByConditionId ищет маркет в локальной таблице по condition_id", async () => {
+    const { service, findOne } = createService();
+    const market = {
+      condition_id: "0xmarket1",
+      market_slug: "trump-win",
+    } as Market;
+    findOne.mockResolvedValue(market);
+
+    const result = await service.findByConditionId("0xmarket1");
+
+    expect(findOne).toHaveBeenCalledWith({
+      where: { condition_id: "0xmarket1" },
+    });
+    expect(result).toBe(market);
+  });
+
   it("маппит 2 маркета и возвращает консистентный meta.total", async () => {
     const { service, fetchMarkets } = createService();
     fetchMarkets.mockResolvedValue([

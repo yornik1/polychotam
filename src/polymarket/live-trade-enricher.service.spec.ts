@@ -34,27 +34,31 @@ describe("LiveTradeEnricherService", () => {
   }
 
   it("находит makerAddress по совпавшей сигнатуре сделки", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue([
+        {
+          market: "0xmarket",
+          asset_id: "asset-1",
+          side: "BUY",
+          size: "219.217767",
+          price: "0.456",
+          match_time: 1700000000,
+          maker_address: "0xmaker",
+        },
+      ]),
+    });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue([
-          {
-            market: "0xmarket",
-            asset_id: "asset-1",
-            side: "BUY",
-            size: "219.217767",
-            price: "0.456",
-            match_time: 1700000000,
-            maker_address: "0xmaker",
-          },
-        ]),
-      }),
+      fetchMock,
     );
 
     const result = await createService().findMakerAddress(createJob());
 
     expect(result).toBe("0xmaker");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://data-api.polymarket.com/trades?market=0xmarket&asset_id=asset-1&limit=200",
+    );
   });
 
   it("возвращает null, если совпадение в data API не найдено", async () => {

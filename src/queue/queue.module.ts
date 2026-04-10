@@ -2,7 +2,7 @@ import { BullBoardModule } from "@bull-board/nestjs";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { BullModule } from "@nestjs/bullmq";
 import { forwardRef, Module } from "@nestjs/common";
-import { LiveTradeEnricherService } from "../polymarket/live-trade-enricher.service.js";
+import { PolymarketEnrichmentModule } from "../polymarket/polymarket-enrichment.module.js";
 import { TelegramModule } from "../telegram/telegram.module.js";
 import { TradesModule } from "../trades/trades.module.js";
 import { WalletsModule } from "../wallets/wallets.module.js";
@@ -41,6 +41,7 @@ import {
     }),
     TradesModule,
     WalletsModule,
+    PolymarketEnrichmentModule,
     forwardRef(() => TelegramModule),
   ],
   controllers: [QueueController],
@@ -49,7 +50,6 @@ import {
     TradesProcessor,
     WalletAnalyticsProcessor,
     TradeEnrichmentProcessor,
-    LiveTradeEnricherService,
   ],
   exports: [BullModule, QueueService],
 })

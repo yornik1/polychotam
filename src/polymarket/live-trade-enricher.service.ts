@@ -59,7 +59,7 @@ export class LiveTradeEnricherService {
   constructor(private readonly configService: ConfigService) {}
 
   async findMakerAddress(job: TradeEnrichmentJob): Promise<string | null> {
-    const response = await fetch(this.buildTradesUrl(job.market));
+    const response = await fetch(this.buildTradesUrl(job));
     if (!response.ok) {
       throw new Error(
         `Trade enrichment request failed: ${response.status} ${response.statusText}`,
@@ -82,14 +82,19 @@ export class LiveTradeEnricherService {
     return null;
   }
 
-  private buildTradesUrl(market: string): string {
+  private buildTradesUrl(job: TradeEnrichmentJob): string {
     const rawBaseUrl = this.configService.get<string>("POLYMARKET_DATA_API_URL");
     const baseUrl =
       typeof rawBaseUrl === "string" && rawBaseUrl.trim().length > 0
         ? rawBaseUrl.trim()
         : DEFAULT_POLYMARKET_DATA_API_URL;
+    const params = new URLSearchParams({
+      market: job.market,
+      asset_id: job.assetId,
+      limit: String(ENRICHMENT_FETCH_LIMIT),
+    });
 
-    return `${baseUrl}/trades?market=${encodeURIComponent(market)}&limit=${ENRICHMENT_FETCH_LIMIT}`;
+    return `${baseUrl}/trades?${params.toString()}`;
   }
 
   private extractTrades(payload: unknown): HistoricalTradeCandidate[] {

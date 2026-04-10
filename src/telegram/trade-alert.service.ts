@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { MarketsService } from "../markets/markets.service.js";
 import { WalletsService } from "../wallets/wallets.service.js";
 import { TelegramService } from "./telegram.service.js";
 
@@ -16,6 +17,7 @@ interface TradeAlertInput {
 export class TradeAlertService {
   constructor(
     private readonly configService: ConfigService,
+    private readonly marketsService: MarketsService,
     private readonly walletsService: WalletsService,
     private readonly telegramService: TelegramService,
   ) {}
@@ -36,7 +38,8 @@ export class TradeAlertService {
       return false;
     }
 
-    return this.telegramService.sendAlert(this.formatAlertMessage(input, amount));
+    const marketLabel = await this.resolveMarketLabel(input.market);
+    return this.telegramService.sendAlert(this.formatAlertMessage(input, marketLabel, amount));
   }
 
   private resolveThresholdAmount(): number {
@@ -50,11 +53,31 @@ export class TradeAlertService {
     return parsed;
   }
 
-  private formatAlertMessage(input: TradeAlertInput, amount: number): string {
+  private async resolveMarketLabel(conditionId: string): Promise<string> {
+    const normalizedConditionId = conditionId.trim();
+    if (normalizedConditionId.length === 0) {
+      return conditionId;
+    }
+
+    const market = await this.marketsService.findByConditionId(normalizedConditionId);
+    const question = market?.question?.trim();
+    if (question !== undefined && question.length > 0) {
+      return question;
+    }
+
+    const slug = market?.market_slug?.trim();
+    if (slug !== undefined && slug.length > 0) {
+      return slug;
+    }
+
+    return normalizedConditionId;
+  }
+
+  private formatAlertMessage(input: TradeAlertInput, marketLabel: string, amount: number): string {
     return [
       "🚨 Кит сделал ставку!",
       `Кошелёк: ${input.address}`,
-      `Маркет: ${input.market}`,
+      `Маркет: ${marketLabel}`,
       `Сторона: ${input.side}`,
       `Сумма: $${amount}`,
     ].join("\n");
