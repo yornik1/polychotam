@@ -1,6 +1,11 @@
 import { INestApplication } from "@nestjs/common";
-import { getQueueToken, getSharedConfigToken } from "@nestjs/bullmq";
+import {
+  getQueueToken,
+  getSharedConfigToken,
+  WorkerHost,
+} from "@nestjs/bullmq";
 import { Test, TestingModule } from "@nestjs/testing";
+import type { Job } from "bullmq";
 import {
   getDataSourceToken,
   getEntityManagerToken,
@@ -16,6 +21,12 @@ import { PolymarketHttpClient } from "../src/polymarket/polymarket-http.client.j
 import { PolymarketWsClient } from "../src/polymarket/polymarket-ws.client.js";
 import { Trade } from "../src/trades/trade.entity.js";
 import { Wallet } from "../src/wallets/wallet.entity.js";
+import { TradesProcessor } from "../src/queue/trades.processor.js";
+
+/** Без @Processor — BullMQ Worker в e2e не поднимаем (нет Redis). */
+class E2eTradesProcessorStub extends WorkerHost {
+  async process(_job: Job): Promise<void> {}
+}
 
 describe("GET /markets (e2e)", () => {
   let app: INestApplication;
@@ -60,8 +71,16 @@ describe("GET /markets (e2e)", () => {
       .useValue(emptyRepo as Repository<Wallet>)
       .overrideProvider(getSharedConfigToken())
       .useValue({ connection: { host: "localhost", port: 6379 } })
-      .overrideProvider(getQueueToken("default"))
-      .useValue({ add: vi.fn() })
+      .overrideProvider(getQueueToken("trades"))
+      .useValue({
+        add: vi.fn(),
+        name: "trades",
+        metaValues: { version: "bullmq" },
+        client: Promise.resolve({ info: vi.fn().mockResolvedValue("") }),
+        getJobCounts: vi.fn().mockResolvedValue({}),
+      })
+      .overrideProvider(TradesProcessor)
+      .useClass(E2eTradesProcessorStub)
       .overrideProvider(getBotToken())
       .useValue({ launch: vi.fn(), stop: vi.fn(), use: vi.fn() })
       .overrideProvider(PolymarketHttpClient)

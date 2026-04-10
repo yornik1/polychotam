@@ -21,6 +21,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@bull-board/api": "^6.21.0",
+    "@bull-board/express": "^6.21.0",
+    "@bull-board/nestjs": "^6.21.0",
     "@nestjs/bullmq": "^11.0.3",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",

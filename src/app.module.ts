@@ -1,3 +1,5 @@
+import { BullBoardModule } from "@bull-board/nestjs";
+import { ExpressAdapter } from "@bull-board/express";
 import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
@@ -24,6 +26,10 @@ import { WalletsModule } from "./wallets/wallets.module.js";
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
         buildTypeOrmConfig(configService),
+    }),
+    BullBoardModule.forRoot({
+      route: "/queues",
+      adapter: ExpressAdapter,
     }),
     BullModule.forRootAsync({
       inject: [ConfigService],

@@ -1,3 +1,4 @@
+import { InjectQueue } from "@nestjs/bullmq";
 import {
   Injectable,
   Logger,
@@ -5,10 +6,16 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Queue } from "bullmq";
 import WebSocket from "ws";
+import type { TradeEvent } from "./dto/trade-event.js";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
 import { buildTopMarketsWsSelection } from "./polymarket-top-markets.js";
 import { parseTradeEventsFromWsPayload } from "./polymarket-ws-trade.parser.js";
+import {
+  TRADES_JOB_PROCESS,
+  TRADES_QUEUE_NAME,
+} from "../queue/trades-queue.config.js";
 
 /** Полный цикл после ошибки HTTP/обрыва WS (спека). */
 const RECONNECT_MS = 5000;
@@ -28,6 +35,8 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly configService: ConfigService,
     private readonly polymarketHttpClient: PolymarketHttpClient,
+    @InjectQueue(TRADES_QUEUE_NAME)
+    private readonly tradesQueue: Queue<TradeEvent>,
   ) {}
 
   onModuleInit(): void {
@@ -115,6 +124,11 @@ export class PolymarketWsClient implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `Сделка: кошелёк=${walletLabel}, сумма=${trade.amount}, маркет=${trade.market} | актив=${trade.assetId}, сторона=${trade.side}, цена=${trade.price}`,
       );
+      void this.tradesQueue.add(TRADES_JOB_PROCESS, trade).catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "Неизвестная ошибка";
+        this.logger.error(`Не удалось поставить сделку в очередь: ${message}`);
+      });
     }
   }
 
