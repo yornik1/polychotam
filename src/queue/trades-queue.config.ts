@@ -10,5 +10,8 @@ export const tradesQueueRegisterOptions = {
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: "exponential" as const, delay: 1000 },
+    // Для WS-потока храним только ограниченную историю job-ов, чтобы Redis не рос бесконечно.
+    removeOnComplete: 1000,
+    removeOnFail: 5000,
   },
 } as const;
