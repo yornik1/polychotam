@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Job } from "bullmq";
 import { ConfigService } from "@nestjs/config";
+import { BackfillService } from "../polymarket/backfill.service.js";
 import type { TradeEvent } from "../polymarket/dto/trade-event.js";
+import type { TradesBackfillPageJob } from "../types/contracts.js";
 import { TradeAlertService } from "../telegram/trade-alert.service.js";
 import { TradesService } from "../trades/trades.service.js";
 import {
   TRADE_ENRICHMENT_JOB_PROCESS,
+  TRADES_JOB_BACKFILL_PAGE,
   TRADES_JOB_PROCESS,
   WALLET_ANALYTICS_JOB_RECALCULATE,
 } from "./trades-queue.config.js";
 import { TradesProcessor } from "./trades.processor.js";
 
-function jobStub(
-  name: string,
-  data: TradeEvent,
-): Pick<Job<TradeEvent>, "name" | "data"> {
+function jobStub<T>(name: string, data: T): Pick<Job<T>, "name" | "data"> {
   return { name, data };
 }
 
@@ -24,6 +24,7 @@ describe("TradesProcessor", () => {
     const add = vi.fn().mockResolvedValue(undefined);
     const addEnrichment = vi.fn().mockResolvedValue(undefined);
     const maybeSendTradeAlert = vi.fn().mockResolvedValue(false);
+    const processBackfillPage = vi.fn().mockResolvedValue(undefined);
     const config = {
       get: vi.fn().mockReturnValue(undefined),
     } as Pick<ConfigService, "get">;
@@ -34,6 +35,7 @@ describe("TradesProcessor", () => {
       { add: addEnrichment } as never,
       { maybeSendTradeAlert } as unknown as TradeAlertService,
       config as ConfigService,
+      { processBackfillPage } as unknown as BackfillService,
     );
 
     const event: TradeEvent = {
@@ -47,20 +49,22 @@ describe("TradesProcessor", () => {
     };
 
     await processor.process(
-      jobStub("other", event) as Job<TradeEvent>,
+      jobStub("other", event) as Job<TradeEvent | TradesBackfillPageJob>,
     );
 
     expect(saveFromWs).not.toHaveBeenCalled();
+    expect(processBackfillPage).not.toHaveBeenCalled();
     expect(add).not.toHaveBeenCalled();
     expect(addEnrichment).not.toHaveBeenCalled();
     expect(maybeSendTradeAlert).not.toHaveBeenCalled();
   });
 
-  it("сохраняет сделку и не ставит пересчёт при пустых wallet owner makerAddress", async () => {
+  it("делегирует backfill-page в BackfillService", async () => {
     const saveFromWs = vi.fn().mockResolvedValue(undefined);
     const add = vi.fn().mockResolvedValue(undefined);
     const addEnrichment = vi.fn().mockResolvedValue(undefined);
     const maybeSendTradeAlert = vi.fn().mockResolvedValue(false);
+    const processBackfillPage = vi.fn().mockResolvedValue(undefined);
     const config = {
       get: vi.fn().mockReturnValue(undefined),
     } as Pick<ConfigService, "get">;
@@ -71,6 +75,41 @@ describe("TradesProcessor", () => {
       { add: addEnrichment } as never,
       { maybeSendTradeAlert } as unknown as TradeAlertService,
       config as ConfigService,
+      { processBackfillPage } as unknown as BackfillService,
+    );
+
+    const payload: TradesBackfillPageJob = {
+      conditionId: "0xmarket",
+      offset: 500,
+    };
+
+    await processor.process(
+      jobStub(TRADES_JOB_BACKFILL_PAGE, payload) as Job<
+        TradeEvent | TradesBackfillPageJob
+      >,
+    );
+
+    expect(processBackfillPage).toHaveBeenCalledWith("0xmarket", 500);
+    expect(saveFromWs).not.toHaveBeenCalled();
+  });
+
+  it("сохраняет сделку и не ставит пересчёт при пустых wallet owner makerAddress", async () => {
+    const saveFromWs = vi.fn().mockResolvedValue(undefined);
+    const add = vi.fn().mockResolvedValue(undefined);
+    const addEnrichment = vi.fn().mockResolvedValue(undefined);
+    const maybeSendTradeAlert = vi.fn().mockResolvedValue(false);
+    const processBackfillPage = vi.fn().mockResolvedValue(undefined);
+    const config = {
+      get: vi.fn().mockReturnValue(undefined),
+    } as Pick<ConfigService, "get">;
+
+    const processor = new TradesProcessor(
+      { saveFromWsTradeEvent: saveFromWs } as unknown as TradesService,
+      { add } as never,
+      { add: addEnrichment } as never,
+      { maybeSendTradeAlert } as unknown as TradeAlertService,
+      config as ConfigService,
+      { processBackfillPage } as unknown as BackfillService,
     );
 
     const event: TradeEvent = {
@@ -86,7 +125,7 @@ describe("TradesProcessor", () => {
     };
 
     await processor.process(
-      jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent>,
+      jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent | TradesBackfillPageJob>,
     );
 
     expect(saveFromWs).toHaveBeenCalledWith(event);
@@ -114,6 +153,7 @@ describe("TradesProcessor", () => {
     const add = vi.fn().mockResolvedValue(undefined);
     const addEnrichment = vi.fn().mockResolvedValue(undefined);
     const maybeSendTradeAlert = vi.fn().mockResolvedValue(true);
+    const processBackfillPage = vi.fn().mockResolvedValue(undefined);
     const config = {
       get: vi.fn().mockReturnValue(undefined),
     } as Pick<ConfigService, "get">;
@@ -124,6 +164,7 @@ describe("TradesProcessor", () => {
       { add: addEnrichment } as never,
       { maybeSendTradeAlert } as unknown as TradeAlertService,
       config as ConfigService,
+      { processBackfillPage } as unknown as BackfillService,
     );
 
     const event: TradeEvent = {
@@ -139,7 +180,7 @@ describe("TradesProcessor", () => {
     };
 
     await processor.process(
-      jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent>,
+      jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent | TradesBackfillPageJob>,
     );
 
     expect(add).toHaveBeenCalledWith(
@@ -161,6 +202,7 @@ describe("TradesProcessor", () => {
     const add = vi.fn().mockResolvedValue(undefined);
     const addEnrichment = vi.fn().mockResolvedValue(undefined);
     const maybeSendTradeAlert = vi.fn().mockResolvedValue(true);
+    const processBackfillPage = vi.fn().mockResolvedValue(undefined);
     const config = {
       get: vi.fn().mockReturnValue(undefined),
     } as Pick<ConfigService, "get">;
@@ -171,6 +213,7 @@ describe("TradesProcessor", () => {
       { add: addEnrichment } as never,
       { maybeSendTradeAlert } as unknown as TradeAlertService,
       config as ConfigService,
+      { processBackfillPage } as unknown as BackfillService,
     );
 
     const event: TradeEvent = {
@@ -186,7 +229,7 @@ describe("TradesProcessor", () => {
     };
 
     await processor.process(
-      jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent>,
+      jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent | TradesBackfillPageJob>,
     );
 
     expect(add).toHaveBeenCalledWith(
@@ -208,6 +251,7 @@ describe("TradesProcessor", () => {
     const add = vi.fn().mockResolvedValue(undefined);
     const addEnrichment = vi.fn().mockResolvedValue(undefined);
     const maybeSendTradeAlert = vi.fn().mockResolvedValue(false);
+    const processBackfillPage = vi.fn().mockResolvedValue(undefined);
     const config = {
       get: vi.fn().mockReturnValue("true"),
     } as Pick<ConfigService, "get">;
@@ -218,6 +262,7 @@ describe("TradesProcessor", () => {
       { add: addEnrichment } as never,
       { maybeSendTradeAlert } as unknown as TradeAlertService,
       config as ConfigService,
+      { processBackfillPage } as unknown as BackfillService,
     );
 
     const event: TradeEvent = {
@@ -231,7 +276,9 @@ describe("TradesProcessor", () => {
     };
 
     await expect(
-      processor.process(jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent>),
+      processor.process(
+        jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent | TradesBackfillPageJob>,
+      ),
     ).rejects.toThrow(/TRADES_PROCESSOR_THROW/);
 
     expect(saveFromWs).not.toHaveBeenCalled();

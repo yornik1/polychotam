@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PolymarketHttpClient } from "./polymarket-http.client.js";
 import type { BackfillService } from "./backfill.service.js";
 import type { PolymarketWsClient } from "./polymarket-ws.client.js";
@@ -14,6 +14,21 @@ type PolymarketServiceCtor = new (
 };
 
 describe("PolymarketService", () => {
+  beforeEach(() => {
+    vi.spyOn(global, "setTimeout").mockImplementation(
+      (handler: TimerHandler) => {
+        if (typeof handler === "function") {
+          (handler as () => void)();
+        }
+        return 0 as unknown as NodeJS.Timeout;
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("на старте синхронизирует markets snapshot до backfill", async () => {
     const fetchMarkets = vi.fn().mockResolvedValue([
       {
@@ -29,14 +44,14 @@ describe("PolymarketService", () => {
       },
     ]);
     const syncSnapshot = vi.fn().mockResolvedValue(undefined);
-    const backfill = vi.fn().mockResolvedValue(undefined);
+    const deepBackfill = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockResolvedValue(undefined);
 
     const ServiceCtor = PolymarketService as unknown as PolymarketServiceCtor;
     const service = new ServiceCtor(
       { fetchMarkets } as unknown as PolymarketHttpClient,
       { syncSnapshot } as { syncSnapshot(): Promise<void> },
-      { backfill } as unknown as BackfillService,
+      { deepBackfill } as unknown as BackfillService,
       { connect } as unknown as PolymarketWsClient,
     );
 
@@ -44,11 +59,11 @@ describe("PolymarketService", () => {
 
     expect(syncSnapshot).toHaveBeenCalledTimes(1);
     expect(syncSnapshot.mock.invocationCallOrder[0]!).toBeLessThan(
-      backfill.mock.invocationCallOrder[0]!,
+      deepBackfill.mock.invocationCallOrder[0]!,
     );
   });
 
-  it("на старте делает backfill топовых маркетов до подключения WS", async () => {
+  it("на старте запускает deep backfill топовых маркетов до подключения WS", async () => {
     const fetchMarkets = vi.fn().mockResolvedValue([
       {
         condition_id:
@@ -74,28 +89,26 @@ describe("PolymarketService", () => {
       },
     ]);
     const syncSnapshot = vi.fn().mockResolvedValue(undefined);
-    const backfill = vi.fn().mockResolvedValue(undefined);
+    const deepBackfill = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockResolvedValue(undefined);
 
     const ServiceCtor = PolymarketService as unknown as PolymarketServiceCtor;
     const service = new ServiceCtor(
       { fetchMarkets } as unknown as PolymarketHttpClient,
       { syncSnapshot } as { syncSnapshot(): Promise<void> },
-      { backfill } as unknown as BackfillService,
+      { deepBackfill } as unknown as BackfillService,
       { connect } as unknown as PolymarketWsClient,
     );
 
     await service.onModuleInit();
 
-    expect(backfill).toHaveBeenNthCalledWith(
+    expect(deepBackfill).toHaveBeenNthCalledWith(
       1,
       "0x0000000000000000000000000000000000000000000000000000000000000001",
-      500,
     );
-    expect(backfill).toHaveBeenNthCalledWith(
+    expect(deepBackfill).toHaveBeenNthCalledWith(
       2,
       "0x0000000000000000000000000000000000000000000000000000000000000002",
-      500,
     );
     expect(connect).toHaveBeenCalledWith([
       "token-1a",
@@ -104,14 +117,14 @@ describe("PolymarketService", () => {
       "token-2b",
     ]);
     expect(fetchMarkets.mock.invocationCallOrder[0]!).toBeLessThan(
-      backfill.mock.invocationCallOrder[0]!,
+      deepBackfill.mock.invocationCallOrder[0]!,
     );
-    expect(backfill.mock.invocationCallOrder[1]!).toBeLessThan(
+    expect(deepBackfill.mock.invocationCallOrder[1]!).toBeLessThan(
       connect.mock.invocationCallOrder[0]!,
     );
   });
 
-  it("не блокирует live WS если backfill одного рынка упал", async () => {
+  it("не блокирует live WS если deep backfill одного рынка упал", async () => {
     const fetchMarkets = vi.fn().mockResolvedValue([
       {
         condition_id:
@@ -136,7 +149,7 @@ describe("PolymarketService", () => {
         volume24hr: 100,
       },
     ]);
-    const backfill = vi
+    const deepBackfill = vi
       .fn()
       .mockRejectedValueOnce(new Error("boom"))
       .mockResolvedValueOnce(undefined);
@@ -147,13 +160,13 @@ describe("PolymarketService", () => {
     const service = new ServiceCtor(
       { fetchMarkets } as unknown as PolymarketHttpClient,
       { syncSnapshot } as { syncSnapshot(): Promise<void> },
-      { backfill } as unknown as BackfillService,
+      { deepBackfill } as unknown as BackfillService,
       { connect } as unknown as PolymarketWsClient,
     );
 
     await expect(service.onModuleInit()).resolves.toBeUndefined();
 
-    expect(backfill).toHaveBeenCalledTimes(2);
+    expect(deepBackfill).toHaveBeenCalledTimes(2);
     expect(connect).toHaveBeenCalledWith(["token-1a", "token-2a"]);
   });
 });

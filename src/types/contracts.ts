@@ -49,3 +49,9 @@ export interface TradeEnrichmentJob {
   price: string;
   timestamp: number;
 }
+
+/** Job пагинации deep backfill в очереди `trades`. */
+export interface TradesBackfillPageJob {
+  conditionId: string;
+  offset: number;
+}

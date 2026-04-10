@@ -8,12 +8,15 @@ import type {
   TradeSide,
   TradeTraderSide,
 } from "./dto/trade-event.js";
+import type { TradesBackfillPageJob } from "../types/contracts.js";
 import {
+  TRADES_JOB_BACKFILL_PAGE,
   TRADES_JOB_PROCESS,
   TRADES_QUEUE_NAME,
 } from "../queue/trades-queue.config.js";
 
 const DEFAULT_BACKFILL_LIMIT = 500;
+const DEFAULT_BACKFILL_PAGE_DELAY_MS = 1000;
 const DEFAULT_POLYMARKET_DATA_API_URL = "https://data-api.polymarket.com";
 
 interface HistoricalTradeRaw {
@@ -91,7 +94,7 @@ export class BackfillService {
   constructor(
     private readonly configService: ConfigService,
     @InjectQueue(TRADES_QUEUE_NAME)
-    private readonly tradesQueue: Queue<TradeEvent>,
+    private readonly tradesQueue: Queue<TradeEvent | TradesBackfillPageJob>,
   ) {}
 
   async backfill(conditionId: string, limit = DEFAULT_BACKFILL_LIMIT): Promise<number> {
@@ -126,14 +129,88 @@ export class BackfillService {
     return added;
   }
 
-  private buildTradesUrl(conditionId: string, limit: number): string {
+  /**
+   * Кладёт первый job пагинации; дальше цепочка `backfill-page` в фоне (см. TradesProcessor).
+   */
+  async deepBackfill(conditionId: string): Promise<void> {
+    const market = conditionId.trim();
+    if (market.length === 0) {
+      return;
+    }
+
+    this.logger.log(`Starting deep backfill for ${market}...`);
+    await this.tradesQueue.add(TRADES_JOB_BACKFILL_PAGE, {
+      conditionId: market,
+      offset: 0,
+    });
+  }
+
+  /** Одна страница REST; при непустом ответе ставит process-trade и следующий backfill-page с delay. */
+  async processBackfillPage(conditionId: string, offset: number): Promise<void> {
+    const market = conditionId.trim();
+    if (market.length === 0) {
+      return;
+    }
+
+    const limit = DEFAULT_BACKFILL_LIMIT;
+    const response = await fetch(this.buildTradesUrl(market, limit, offset));
+    if (!response.ok) {
+      throw new Error(
+        `Historical backfill request failed: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const payload = (await response.json()) as unknown;
+    const trades = this.extractTrades(payload);
+
+    if (trades.length === 0) {
+      this.logger.log(
+        `Deep backfill reached end for market ${market} (offset ${offset})`,
+      );
+      return;
+    }
+
+    for (const trade of trades) {
+      const event = this.mapToTradeEvent(trade);
+      if (event === null) {
+        continue;
+      }
+      await this.tradesQueue.add(TRADES_JOB_PROCESS, event);
+    }
+
+    const pageDelayMs = this.resolveBackfillPageDelayMs();
+    await this.tradesQueue.add(
+      TRADES_JOB_BACKFILL_PAGE,
+      { conditionId: market, offset: offset + limit },
+      { delay: pageDelayMs },
+    );
+  }
+
+  private resolveBackfillPageDelayMs(): number {
+    const raw = this.configService.get<string>("POLYMARKET_BACKFILL_PAGE_DELAY_MS");
+    if (typeof raw !== "string" || raw.trim().length === 0) {
+      return DEFAULT_BACKFILL_PAGE_DELAY_MS;
+    }
+
+    const parsed = Number(raw.trim());
+    return Number.isFinite(parsed) && parsed >= 0
+      ? parsed
+      : DEFAULT_BACKFILL_PAGE_DELAY_MS;
+  }
+
+  private buildTradesUrl(conditionId: string, limit: number, offset?: number): string {
     const rawBaseUrl = this.configService.get<string>("POLYMARKET_DATA_API_URL");
     const baseUrl =
       typeof rawBaseUrl === "string" && rawBaseUrl.trim().length > 0
         ? rawBaseUrl.trim()
         : DEFAULT_POLYMARKET_DATA_API_URL;
 
-    return `${baseUrl}/trades?market=${encodeURIComponent(conditionId)}&limit=${limit}`;
+    const basePath = `${baseUrl}/trades?market=${encodeURIComponent(conditionId)}&limit=${limit}`;
+    if (offset === undefined) {
+      return basePath;
+    }
+
+    return `${basePath}&offset=${offset}`;
   }
 
   private extractTrades(payload: unknown): HistoricalTradeRaw[] {

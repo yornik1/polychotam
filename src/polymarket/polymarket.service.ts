@@ -24,18 +24,21 @@ export class PolymarketService implements OnModuleInit {
 
     for (const row of selection.rows) {
       try {
-        await this.backfillService.backfill(row.conditionId, 500);
+        await this.backfillService.deepBackfill(row.conditionId);
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 2000);
+        });
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Неизвестная ошибка";
         this.logger.error(
-          `Historical backfill не удался для ${row.conditionId}: ${message}`,
+          `Deep backfill не удался запустить для ${row.conditionId}: ${message}`,
         );
       }
     }
 
     this.logger.log(
-      `Historical backfill завершён для ${selection.rows.length} рынков, запускаю live WS`,
+      `Запущен deep backfill для ${selection.rows.length} рынков (очередь), подключаю live WS`,
     );
     await this.polymarketWsClient.connect(selection.assetIds);
   }

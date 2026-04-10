@@ -5,6 +5,7 @@ export const TRADE_ENRICHMENT_QUEUE_NAME = "trade-enrichment";
 
 /** Имя job внутри очереди `trades`. */
 export const TRADES_JOB_PROCESS = "process-trade";
+export const TRADES_JOB_BACKFILL_PAGE = "backfill-page";
 export const WALLET_ANALYTICS_JOB_RECALCULATE = "wallet-recalculate";
 export const TRADE_ENRICHMENT_JOB_PROCESS = "enrich-trade";
 

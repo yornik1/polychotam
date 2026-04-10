@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "@nestjs/config";
 import type { Queue } from "bullmq";
+import type { TradesBackfillPageJob } from "../types/contracts.js";
 import type { TradeEvent } from "./dto/trade-event.js";
-import { TRADES_JOB_PROCESS } from "../queue/trades-queue.config.js";
+import {
+  TRADES_JOB_BACKFILL_PAGE,
+  TRADES_JOB_PROCESS,
+} from "../queue/trades-queue.config.js";
 import { createHash } from "node:crypto";
 
 describe("BackfillService", () => {
@@ -20,7 +24,10 @@ describe("BackfillService", () => {
     }
 
     const add = vi.fn().mockResolvedValue(undefined);
-    const queue = { add } as Pick<Queue<TradeEvent>, "add"> as Queue<TradeEvent>;
+    const queue = { add } as Pick<
+      Queue<TradeEvent | TradesBackfillPageJob>,
+      "add"
+    > as Queue<TradeEvent | TradesBackfillPageJob>;
     const config = {
       get: vi.fn((key: string) =>
         key === "POLYMARKET_DATA_API_URL"
@@ -80,6 +87,145 @@ describe("BackfillService", () => {
         bucketIndex: 0,
         owner: "0x1234567890123456789012345678901234567890",
       }),
+    );
+  });
+
+  it("deepBackfill ставит первый job backfill-page с offset 0", async () => {
+    const imported = await import("./backfill.service.js").catch(() => null);
+    expect(imported).not.toBeNull();
+    if (imported === null) {
+      return;
+    }
+
+    const add = vi.fn().mockResolvedValue(undefined);
+    const queue = { add } as Pick<
+      Queue<TradeEvent | TradesBackfillPageJob>,
+      "add"
+    > as Queue<TradeEvent | TradesBackfillPageJob>;
+    const config = {
+      get: vi.fn().mockReturnValue(undefined),
+    } as Pick<ConfigService, "get"> as ConfigService;
+
+    const service = new imported.BackfillService(config, queue);
+
+    await service.deepBackfill(
+      "0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347",
+    );
+
+    expect(add).toHaveBeenCalledWith(TRADES_JOB_BACKFILL_PAGE, {
+      conditionId:
+        "0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347",
+      offset: 0,
+    });
+  });
+
+  it("processBackfillPage при пустом ответе не ставит следующую страницу", async () => {
+    const imported = await import("./backfill.service.js").catch(() => null);
+    expect(imported).not.toBeNull();
+    if (imported === null) {
+      return;
+    }
+
+    const add = vi.fn().mockResolvedValue(undefined);
+    const queue = { add } as Pick<
+      Queue<TradeEvent | TradesBackfillPageJob>,
+      "add"
+    > as Queue<TradeEvent | TradesBackfillPageJob>;
+    const config = {
+      get: vi.fn((key: string) =>
+        key === "POLYMARKET_DATA_API_URL"
+          ? "https://data-api.polymarket.com"
+          : key === "POLYMARKET_BACKFILL_PAGE_DELAY_MS"
+            ? "800"
+            : undefined,
+      ),
+    } as Pick<ConfigService, "get"> as ConfigService;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue([]),
+      }),
+    );
+
+    const service = new imported.BackfillService(config, queue);
+    await service.processBackfillPage(
+      "0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347",
+      1500,
+    );
+
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it("processBackfillPage ставит process-trade и следующий backfill-page с delay", async () => {
+    const imported = await import("./backfill.service.js").catch(() => null);
+    expect(imported).not.toBeNull();
+    if (imported === null) {
+      return;
+    }
+
+    const add = vi.fn().mockResolvedValue(undefined);
+    const queue = { add } as Pick<
+      Queue<TradeEvent | TradesBackfillPageJob>,
+      "add"
+    > as Queue<TradeEvent | TradesBackfillPageJob>;
+    const config = {
+      get: vi.fn((key: string) =>
+        key === "POLYMARKET_DATA_API_URL"
+          ? "https://data-api.polymarket.com"
+          : key === "POLYMARKET_BACKFILL_PAGE_DELAY_MS"
+            ? "750"
+            : undefined,
+      ),
+    } as Pick<ConfigService, "get"> as ConfigService;
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue([
+        {
+          proxyWallet: "0x1234567890123456789012345678901234567890",
+          side: "BUY",
+          asset:
+            "114122071509644379678018727908709560226618148003371446110114509806601493071694",
+          conditionId:
+            "0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347",
+          size: 1,
+          price: 0.5,
+          timestamp: 1700000001,
+          outcome: "YES",
+          outcomeIndex: 0,
+          transactionHash:
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+      ]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const service = new imported.BackfillService(config, queue);
+    await service.processBackfillPage(
+      "0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347",
+      500,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://data-api.polymarket.com/trades?market=0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347&limit=500&offset=500",
+    );
+    expect(add).toHaveBeenCalledWith(
+      TRADES_JOB_PROCESS,
+      expect.objectContaining({
+        market:
+          "0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347",
+      }),
+    );
+    expect(add).toHaveBeenCalledWith(
+      TRADES_JOB_BACKFILL_PAGE,
+      {
+        conditionId:
+          "0x6a67b9d828d53862160e470329ffea5246f338ecfffdf2cab45211ec578b0347",
+        offset: 1000,
+      },
+      { delay: 750 },
     );
   });
 });

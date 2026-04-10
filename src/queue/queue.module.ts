@@ -3,6 +3,7 @@ import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { BullModule } from "@nestjs/bullmq";
 import { forwardRef, Module } from "@nestjs/common";
 import { PolymarketEnrichmentModule } from "../polymarket/polymarket-enrichment.module.js";
+import { PolymarketModule } from "../polymarket/polymarket.module.js";
 import { TelegramModule } from "../telegram/telegram.module.js";
 import { TradesModule } from "../trades/trades.module.js";
 import { WalletsModule } from "../wallets/wallets.module.js";
@@ -42,6 +43,7 @@ import {
     TradesModule,
     WalletsModule,
     PolymarketEnrichmentModule,
+    forwardRef(() => PolymarketModule),
     forwardRef(() => TelegramModule),
   ],
   controllers: [QueueController],
