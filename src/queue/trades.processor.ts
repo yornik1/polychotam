@@ -45,18 +45,25 @@ export class TradesProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * Выравниваем fallback с тем, как historical trade пишет `maker_address` в БД:
+   * makerAddress -> wallet -> owner.
+   */
   private resolveWalletAddress(event: TradeEvent): string | null {
     const makerAddress = event.makerAddress?.trim();
     if (makerAddress !== undefined && makerAddress.length > 0) {
       return makerAddress;
     }
 
+    const wallet = event.wallet.trim();
+    if (wallet.length > 0) {
+      return wallet;
+    }
+
     const owner = event.owner?.trim();
     if (owner !== undefined && owner.length > 0) {
       return owner;
     }
-
-    const wallet = event.wallet.trim();
-    return wallet.length > 0 ? wallet : null;
+    return null;
   }
 }

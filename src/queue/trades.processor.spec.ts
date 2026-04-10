@@ -81,7 +81,7 @@ describe("TradesProcessor", () => {
     expect(add).not.toHaveBeenCalled();
   });
 
-  it("ставит recalculation job с приоритетом makerAddress над owner и wallet", async () => {
+  it("ставит recalculation job с приоритетом makerAddress над wallet и owner", async () => {
     const saveFromWs = vi.fn().mockResolvedValue(undefined);
     const add = vi.fn().mockResolvedValue(undefined);
     const config = {
@@ -114,6 +114,42 @@ describe("TradesProcessor", () => {
       WALLET_ANALYTICS_JOB_RECALCULATE,
       { address: "0xmaker" },
       { jobId: "wallet-recalculate:0xmaker" },
+    );
+  });
+
+  it("если makerAddress пустой, берёт wallet до owner чтобы совпасть с trades.maker_address", async () => {
+    const saveFromWs = vi.fn().mockResolvedValue(undefined);
+    const add = vi.fn().mockResolvedValue(undefined);
+    const config = {
+      get: vi.fn().mockReturnValue(undefined),
+    } as Pick<ConfigService, "get">;
+
+    const processor = new TradesProcessor(
+      { saveFromWsTradeEvent: saveFromWs } as unknown as TradesService,
+      { add } as never,
+      config as ConfigService,
+    );
+
+    const event: TradeEvent = {
+      wallet: "  0xwallet  ",
+      amount: "1",
+      side: "BUY",
+      price: "0.5",
+      market: "0xm",
+      assetId: "a1",
+      timestamp: 1,
+      owner: "  0xowner  ",
+      makerAddress: "   ",
+    };
+
+    await processor.process(
+      jobStub(TRADES_JOB_PROCESS, event) as Job<TradeEvent>,
+    );
+
+    expect(add).toHaveBeenCalledWith(
+      WALLET_ANALYTICS_JOB_RECALCULATE,
+      { address: "0xwallet" },
+      { jobId: "wallet-recalculate:0xwallet" },
     );
   });
 

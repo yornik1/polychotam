@@ -23,7 +23,8 @@ export const walletAnalyticsQueueRegisterOptions = {
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: "exponential" as const, delay: 1000 },
-    removeOnComplete: 1000,
+    // Идентичный jobId нужен для коалесцирования адресов, поэтому completed job удаляем сразу.
+    removeOnComplete: true,
     removeOnFail: 5000,
   },
 } as const;
