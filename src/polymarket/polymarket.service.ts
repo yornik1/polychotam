@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { MarketSyncService } from "../markets/market-sync.service.js";
+import { buildTopMarketsWsSelectionFromGamma } from "./polymarket-gamma-top-markets.js";
 import { buildTopMarketsWsSelection } from "./polymarket-top-markets.js";
+import type { TopMarketsWsSelection } from "./polymarket-top-markets.js";
 import { BackfillService } from "./backfill.service.js";
+import type { GammaMarketRaw } from "./dto/gamma-market.raw.js";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
 import { PolymarketWsClient } from "./polymarket-ws.client.js";
 
@@ -19,15 +22,18 @@ export class PolymarketService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     await this.marketSyncService.syncSnapshot();
 
-    const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
-    const selection = buildTopMarketsWsSelection(rawMarkets, 20);
+    const selection = await this.resolveTopMarketsWsSelection(20);
+    if (selection.gammaSource.length > 0) {
+      await this.marketSyncService.upsertGammaMarketsAndCollectNewlyResolved(
+        selection.gammaSource,
+      );
+    }
+
+    await this.polymarketWsClient.connect(selection.assetIds);
 
     for (const row of selection.rows) {
       try {
         await this.backfillService.deepBackfill(row.conditionId);
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 2000);
-        });
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Неизвестная ошибка";
@@ -38,8 +44,27 @@ export class PolymarketService implements OnModuleInit {
     }
 
     this.logger.log(
-      `Запущен deep backfill для ${selection.rows.length} рынков (очередь), подключаю live WS`,
+      `Live WS подключён; deep backfill поставлен в очередь для ${selection.rows.length} рынков`,
     );
-    await this.polymarketWsClient.connect(selection.assetIds);
+  }
+
+  private async resolveTopMarketsWsSelection(
+    limit: number,
+  ): Promise<TopMarketsWsSelection & { gammaSource: GammaMarketRaw[] }> {
+    try {
+      const gammaMarkets =
+        await this.polymarketHttpClient.fetchActiveMarketsFromGamma(limit);
+      const selection = buildTopMarketsWsSelectionFromGamma(gammaMarkets, limit);
+      return { ...selection, gammaSource: [...gammaMarkets] };
+    } catch (errorGamma: unknown) {
+      const msg =
+        errorGamma instanceof Error ? errorGamma.message : "Неизвестная ошибка";
+      this.logger.warn(
+        `Gamma API недоступен (${msg}), fallback топ-маркетов на CLOB /markets`,
+      );
+      const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
+      const selection = buildTopMarketsWsSelection(rawMarkets, limit);
+      return { ...selection, gammaSource: [] };
+    }
   }
 }

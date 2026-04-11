@@ -1,11 +1,8 @@
 import type { TradeEvent, TradeSide } from "./dto/trade-event.js";
+import { isPlainRecord } from "./polymarket-ws-payload.util.js";
 
 /** Тип события сделки в market channel (см. доку Polymarket CLOB). */
 export const POLYMARKET_WS_LAST_TRADE_PRICE = "last_trade_price";
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function isTradeSide(value: unknown): value is TradeSide {
   return value === "BUY" || value === "SELL";

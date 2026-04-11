@@ -175,4 +175,73 @@ describe("MarketSyncService", () => {
       ["condition_id"],
     );
   });
+
+  it("upsertGammaMarketsAndCollectNewlyResolved возвращает id при новом winning_token", async () => {
+    const fetchMarkets = vi.fn();
+    const fetchSimplifiedMarkets = vi.fn();
+    const find = vi.fn().mockResolvedValue([
+      { condition_id: "0xg", closed: false, winning_token_id: null },
+    ]);
+    const upsert = vi.fn().mockResolvedValue(undefined);
+
+    const service = new MarketSyncService(
+      {
+        fetchMarkets,
+        fetchSimplifiedMarkets,
+      } as unknown as PolymarketHttpClient,
+      { find, upsert } as unknown as Repository<Market>,
+    );
+
+    const newly = await service.upsertGammaMarketsAndCollectNewlyResolved([
+      {
+        conditionId: "0xg",
+        slug: "slug-g",
+        question: "Q?",
+        clobTokenIds: ["tok-a", "tok-b"],
+        outcomes: '["Yes","No"]',
+        outcomePrices: '["1","0"]',
+        closed: true,
+        active: false,
+        volume24hr: 1,
+        liquidityNum: 0,
+      },
+    ]);
+
+    expect(newly).toEqual(["0xg"]);
+    expect(upsert).toHaveBeenCalled();
+  });
+
+  it("upsertGammaMarketsAndCollectNewlyResolved пустой массив если winner уже был в БД", async () => {
+    const fetchMarkets = vi.fn();
+    const fetchSimplifiedMarkets = vi.fn();
+    const find = vi.fn().mockResolvedValue([
+      { condition_id: "0xg", closed: true, winning_token_id: "tok-a" },
+    ]);
+    const upsert = vi.fn().mockResolvedValue(undefined);
+
+    const service = new MarketSyncService(
+      {
+        fetchMarkets,
+        fetchSimplifiedMarkets,
+      } as unknown as PolymarketHttpClient,
+      { find, upsert } as unknown as Repository<Market>,
+    );
+
+    const newly = await service.upsertGammaMarketsAndCollectNewlyResolved([
+      {
+        conditionId: "0xg",
+        slug: "slug-g",
+        question: "Q?",
+        clobTokenIds: ["tok-a", "tok-b"],
+        outcomes: '["Yes","No"]',
+        outcomePrices: '["1","0"]',
+        closed: true,
+        active: false,
+        volume24hr: 1,
+        liquidityNum: 0,
+      },
+    ]);
+
+    expect(newly).toEqual([]);
+  });
 });

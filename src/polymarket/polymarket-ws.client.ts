@@ -9,7 +9,10 @@ import { Queue } from "bullmq";
 import WebSocket from "ws";
 import type { TradeEvent } from "./dto/trade-event.js";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
+import { PolymarketMarketResolutionService } from "./polymarket-market-resolution.service.js";
+import { buildTopMarketsWsSelectionFromGamma } from "./polymarket-gamma-top-markets.js";
 import { buildTopMarketsWsSelection } from "./polymarket-top-markets.js";
+import { tryParseMarketResolvedWsPayload } from "./polymarket-ws-resolved.parser.js";
 import { parseTradeEventsFromWsPayload } from "./polymarket-ws-trade.parser.js";
 import {
   TRADES_JOB_PROCESS,
@@ -34,6 +37,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
   constructor(
     private readonly configService: ConfigService,
     private readonly polymarketHttpClient: PolymarketHttpClient,
+    private readonly marketResolutionService: PolymarketMarketResolutionService,
     @InjectQueue(TRADES_QUEUE_NAME)
     private readonly tradesQueue: Queue<TradeEvent>,
   ) {}
@@ -121,6 +125,33 @@ export class PolymarketWsClient implements OnModuleDestroy {
       return;
     }
 
+    this.dispatchParsedWsPayload(parsed);
+  }
+
+  private dispatchParsedWsPayload(parsed: unknown): void {
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        this.dispatchParsedWsPayload(item);
+      }
+      return;
+    }
+
+    const resolved = tryParseMarketResolvedWsPayload(parsed);
+    if (resolved !== null) {
+      void this.marketResolutionService
+        .applyMarketResolvedFromWs({
+          conditionId: resolved.conditionId,
+          winningAssetId: resolved.winningAssetId,
+          winningOutcome: resolved.winningOutcome,
+        })
+        .catch((error: unknown) => {
+          const message =
+            error instanceof Error ? error.message : "Неизвестная ошибка";
+          this.logger.error(`market_resolved: не удалось применить: ${message}`);
+        });
+      return;
+    }
+
     const trades = parseTradeEventsFromWsPayload(parsed);
     for (const trade of trades) {
       const walletLabel = trade.wallet.length > 0 ? trade.wallet : "—";
@@ -147,32 +178,44 @@ export class PolymarketWsClient implements OnModuleDestroy {
     let assetIds: readonly string[] = initialAssetIds ?? [];
     if (assetIds.length === 0) {
       try {
-        const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
-        const selection = buildTopMarketsWsSelection(rawMarkets, 20);
+        const gammaMarkets =
+          await this.polymarketHttpClient.fetchActiveMarketsFromGamma(20);
+        const selection = buildTopMarketsWsSelectionFromGamma(gammaMarkets, 20);
         assetIds = selection.assetIds;
 
         this.logger.log(
-          `Топ-${selection.rows.length} маркетов (объём 24h с CLOB /markets + приоритет торгуемости); уникальных assets_ids: ${assetIds.length}`,
+          `Топ-${selection.rows.length} маркетов (Gamma API по volume24h); уникальных assets_ids: ${assetIds.length}`,
         );
-        if (
-          selection.rows.length > 0 &&
-          selection.rows.every((r) => r.volume24hr === 0)
-        ) {
-          this.logger.warn(
-            "У выбранных рынков объём 24h = 0: в ответе CLOB /markets поля объёма обычно нет — «топ по объёму» недоступен без другого API (например Gamma). Сортировка: приоритет accepting_orders / active / closed.",
-          );
-        }
         for (const row of selection.rows) {
           this.logger.log(
             `  #${row.rank} vol24h=${row.volume24hr} tradePri=${row.tradabilityScore} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`,
           );
         }
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "Неизвестная ошибка";
-        this.logger.error(`Ошибка загрузки маркетов для WS: ${message}`);
-        this.scheduleReconnect();
-        return;
+      } catch (errorGamma: unknown) {
+        const gammaMessage =
+          errorGamma instanceof Error ? errorGamma.message : "Неизвестная ошибка";
+        this.logger.warn(
+          `Gamma API недоступен (${gammaMessage}), fallback на CLOB /markets`,
+        );
+        try {
+          const rawMarkets = await this.polymarketHttpClient.fetchMarkets();
+          const selection = buildTopMarketsWsSelection(rawMarkets, 20);
+          assetIds = selection.assetIds;
+          this.logger.log(
+            `Топ-${selection.rows.length} маркетов (fallback CLOB); уникальных assets_ids: ${assetIds.length}`,
+          );
+          for (const row of selection.rows) {
+            this.logger.log(
+              `  #${row.rank} vol24h=${row.volume24hr} tradePri=${row.tradabilityScore} condition_id=${row.conditionId} slug=${row.slug} token_id=[${row.tokenIds.join(", ")}]`,
+            );
+          }
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error ? error.message : "Неизвестная ошибка";
+          this.logger.error(`Ошибка загрузки маркетов для WS: ${message}`);
+          this.scheduleReconnect();
+          return;
+        }
       }
     } else {
       this.logger.log(
@@ -201,6 +244,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
       const payload = {
         assets_ids: [...assetIds],
         type: "market",
+        custom_feature_enabled: true,
       };
       const subscribeJson = JSON.stringify(payload);
       this.logger.log(

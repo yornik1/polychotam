@@ -1,11 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ClobClient } from "@polymarket/clob-client";
+import type { GammaMarketRaw } from "./dto/gamma-market.raw.js";
 import { PolymarketMarketRaw } from "./dto/polymarket-market.raw.js";
 import { PolymarketSimplifiedMarketRaw } from "./dto/polymarket-simplified-market.raw.js";
 
 const DEFAULT_HTTP_TIMEOUT_MS = 10000;
 const DEFAULT_POLYMARKET_CLOB_URL = "https://clob.polymarket.com";
+const DEFAULT_POLYMARKET_GAMMA_URL = "https://gamma-api.polymarket.com";
 const POLYGON_CHAIN_ID = 137;
 
 const INITIAL_CURSOR = "MA==";
@@ -77,12 +79,61 @@ export class PolymarketHttpClient {
     return this.validateSimplifiedMarkets(rawMarkets);
   }
 
+  /**
+   * Активные маркеты с реальным volume24hr (Gamma), в отличие от первой страницы CLOB /markets.
+   */
+  async fetchActiveMarketsFromGamma(limit = 20): Promise<GammaMarketRaw[]> {
+    const base = this.resolveGammaBaseUrl();
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 500) : 20;
+    const url = `${base}/markets?closed=false&active=true&limit=${safeLimit}&order=volume24hr&ascending=false`;
+    const response = await this.withTimeout(fetch(url));
+    if (!response.ok) {
+      throw new PolymarketUpstreamStatusError(response.status);
+    }
+    const payload = (await response.json()) as unknown;
+    return this.validateGammaMarketsArray(payload);
+  }
+
+  /**
+   * Недавно закрытые маркеты (для крона: подтянуть winning_token_id в БД).
+   */
+  async fetchRecentlyResolvedMarketsFromGamma(limit = 40): Promise<GammaMarketRaw[]> {
+    const base = this.resolveGammaBaseUrl();
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 40;
+    const url = `${base}/markets?closed=true&limit=${safeLimit}&order=volume24hr&ascending=false`;
+    const response = await this.withTimeout(fetch(url));
+    if (!response.ok) {
+      throw new PolymarketUpstreamStatusError(response.status);
+    }
+    const payload = (await response.json()) as unknown;
+    return this.validateGammaMarketsArray(payload);
+  }
+
   private resolveHost(): string {
     const host = this.configService.get<string>("POLYMARKET_REST_URL");
     if (typeof host !== "string" || host.trim() === "") {
       return DEFAULT_POLYMARKET_CLOB_URL;
     }
     return host.trim();
+  }
+
+  private resolveGammaBaseUrl(): string {
+    const raw = this.configService.get<string>("POLYMARKET_GAMMA_API_URL");
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      return raw.trim().replace(/\/$/, "");
+    }
+    return DEFAULT_POLYMARKET_GAMMA_URL;
+  }
+
+  private validateGammaMarketsArray(payload: unknown): GammaMarketRaw[] {
+    if (!Array.isArray(payload)) {
+      throw new PolymarketInvalidPayloadError("Gamma markets response is not an array");
+    }
+    const hasInvalid = payload.some((item: unknown) => item === null || typeof item !== "object");
+    if (hasInvalid) {
+      throw new PolymarketInvalidPayloadError("Gamma markets response contains invalid item");
+    }
+    return payload as GammaMarketRaw[];
   }
 
   private async withTimeout<T>(operation: Promise<T>): Promise<T> {

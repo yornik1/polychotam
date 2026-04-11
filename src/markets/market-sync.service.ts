@@ -1,11 +1,20 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { In, Repository } from "typeorm";
+import type { GammaMarketRaw } from "../polymarket/dto/gamma-market.raw.js";
 import { PolymarketHttpClient } from "../polymarket/polymarket-http.client.js";
 import {
   PolymarketSimplifiedMarketRaw,
   PolymarketSimplifiedTokenRaw,
 } from "../polymarket/dto/polymarket-simplified-market.raw.js";
+import {
+  buildTokensJsonFromGamma,
+  deriveWinningTokenIdFromGamma,
+  gammaConditionId,
+  gammaLiquidityNum,
+  gammaVolume24hr,
+  gammaWinningOutcome,
+} from "../polymarket/polymarket-gamma.util.js";
 import { Market } from "./market.entity.js";
 
 type MarketSnapshotRow = {
@@ -74,6 +83,112 @@ export class MarketSyncService {
       [...deduplicatedMarkets.values()],
       ["condition_id"],
     );
+  }
+
+  /**
+   * Upsert строк из Gamma и возвращает condition_id маркетов, у которых впервые появился
+   * `winning_token_id` при `closed` (для пересчёта кошельков).
+   */
+  async upsertGammaMarketsAndCollectNewlyResolved(
+    markets: readonly GammaMarketRaw[],
+  ): Promise<readonly string[]> {
+    const syncedAt = new Date();
+    const rows: MarketSnapshotRow[] = [];
+    for (const market of markets) {
+      const row = this.mapGammaMarketToSnapshotRow(market, syncedAt);
+      if (row !== null) {
+        rows.push(row);
+      }
+    }
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const ids = rows.map((r) => r.condition_id);
+    const existing = await this.marketRepository.find({
+      where: { condition_id: In(ids) },
+      select: ["condition_id", "closed", "winning_token_id"],
+    });
+    const prev = new Map(
+      existing.map((e) => [
+        e.condition_id,
+        {
+          closed: e.closed,
+          winning_token_id: e.winning_token_id,
+        },
+      ]),
+    );
+
+    await this.marketRepository.upsert(rows, ["condition_id"]);
+
+    const newlyResolved: string[] = [];
+    for (const row of rows) {
+      if (!row.closed || row.winning_token_id === null || row.winning_token_id.trim().length === 0) {
+        continue;
+      }
+      const was = prev.get(row.condition_id);
+      const hadWinner =
+        was !== undefined &&
+        was.winning_token_id !== null &&
+        String(was.winning_token_id).trim().length > 0;
+      if (!hadWinner) {
+        newlyResolved.push(row.condition_id);
+      }
+    }
+    return newlyResolved;
+  }
+
+  private mapGammaMarketToSnapshotRow(
+    market: GammaMarketRaw,
+    syncedAt: Date,
+  ): MarketSnapshotRow | null {
+    const condition_id = gammaConditionId(market);
+    if (condition_id === null) {
+      return null;
+    }
+    const tokens = buildTokensJsonFromGamma(market);
+    if (tokens.length === 0) {
+      return null;
+    }
+    const questionRaw = market.question;
+    const question =
+      typeof questionRaw === "string" && questionRaw.trim().length > 0
+        ? questionRaw.trim()
+        : `Gamma market ${condition_id.slice(0, 12)}…`;
+    const slugRaw =
+      typeof market.slug === "string"
+        ? market.slug.trim()
+        : typeof market.market_slug === "string"
+          ? market.market_slug.trim()
+          : "";
+    const market_slug =
+      slugRaw.length > 0 ? slugRaw : `gamma-${condition_id.slice(2, 18)}`;
+    const closed = market.closed === true;
+    const active = market.active === true;
+    const winning_token_id = closed ? deriveWinningTokenIdFromGamma(market) : null;
+    const winning_outcome = closed ? gammaWinningOutcome(market) : null;
+    const endIso =
+      typeof market.endDateIso === "string"
+        ? market.endDateIso.trim() || null
+        : typeof market.end_date_iso === "string"
+          ? market.end_date_iso.trim() || null
+          : null;
+
+    return {
+      condition_id,
+      question,
+      market_slug,
+      tokens,
+      winning_token_id,
+      winning_outcome,
+      active,
+      closed,
+      accepting_orders: active && !closed ? true : null,
+      liquidity: gammaLiquidityNum(market),
+      volume24hr: gammaVolume24hr(market),
+      end_date_iso: endIso,
+      internal_synced_at: syncedAt,
+    };
   }
 
   private resolveWinningToken(

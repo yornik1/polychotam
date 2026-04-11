@@ -3,6 +3,7 @@ import { ExpressAdapter } from "@bull-board/express";
 import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
+import { ScheduleModule } from "@nestjs/schedule";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AppController } from "./app.controller.js";
 import { AppService } from "./app.service.js";
@@ -23,6 +24,7 @@ import { WalletsModule } from "./wallets/wallets.module.js";
       isGlobal: true,
       envFilePath: [...ENV_FILE_PATHS],
     }),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>

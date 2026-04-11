@@ -371,4 +371,60 @@ describe("PolymarketHttpClient", () => {
 
     await expect(client.fetchMarkets()).rejects.toBeInstanceOf(PolymarketHttpTimeoutError);
   });
+
+  it("fetchActiveMarketsFromGamma запрашивает Gamma и возвращает массив", async () => {
+    const payload = [{ conditionId: "0xg1", clobTokenIds: ["a"] }];
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(payload),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        PolymarketHttpClient,
+        {
+          provide: ConfigService,
+          useValue: new TestConfigService({
+            POLYMARKET_REST_URL: "https://clob.polymarket.com",
+            POLYMARKET_GAMMA_API_URL: "https://custom-gamma.example",
+          }),
+        },
+      ],
+    }).compile();
+
+    const client = moduleRef.get(PolymarketHttpClient);
+    const result = await client.fetchActiveMarketsFromGamma(5);
+
+    expect(result).toEqual(payload);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://custom-gamma.example/markets?closed=false&active=true&limit=5&order=volume24hr&ascending=false",
+    );
+  });
+
+  it("fetchRecentlyResolvedMarketsFromGamma бросает PolymarketUpstreamStatusError при 500", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: vi.fn(),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        PolymarketHttpClient,
+        {
+          provide: ConfigService,
+          useValue: new TestConfigService({
+            POLYMARKET_REST_URL: "https://clob.polymarket.com",
+          }),
+        },
+      ],
+    }).compile();
+
+    const client = moduleRef.get(PolymarketHttpClient);
+    await expect(client.fetchRecentlyResolvedMarketsFromGamma(10)).rejects.toBeInstanceOf(
+      PolymarketUpstreamStatusError,
+    );
+  });
 });

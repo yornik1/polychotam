@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ConfigService } from "@nestjs/config";
 import type { Queue } from "bullmq";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
+import type { PolymarketMarketResolutionService } from "./polymarket-market-resolution.service.js";
 import { PolymarketWsClient } from "./polymarket-ws.client.js";
 import {
   POLYMARKET_WS_LAST_TRADE_PRICE,
@@ -11,6 +12,7 @@ import type { TradeEvent } from "./dto/trade-event.js";
 
 type WsClientInternals = Pick<PolymarketWsClient, never> & {
   handleMessage(data: Buffer | string): void;
+  dispatchParsedWsPayload(parsed: unknown): void;
 };
 
 describe("PolymarketWsClient", () => {
@@ -24,7 +26,14 @@ describe("PolymarketWsClient", () => {
 
     const http = {} as Pick<PolymarketHttpClient, never> as PolymarketHttpClient;
 
-    const client = new PolymarketWsClient(config, http, tradesQueue);
+    const resolution = {
+      applyMarketResolvedFromWs: vi.fn().mockResolvedValue(undefined),
+    } as Pick<
+      PolymarketMarketResolutionService,
+      "applyMarketResolvedFromWs"
+    > as PolymarketMarketResolutionService;
+
+    const client = new PolymarketWsClient(config, http, resolution, tradesQueue);
 
     const payload = {
       asset_id: "aid1",
@@ -52,5 +61,42 @@ describe("PolymarketWsClient", () => {
       assetId: "aid1",
       timestamp: 1000,
     });
+  });
+
+  it("вызывает applyMarketResolvedFromWs для market_resolved", async () => {
+    const add = vi.fn().mockResolvedValue(undefined);
+    const tradesQueue = { add } as Pick<Queue<TradeEvent>, "add"> as Queue<TradeEvent>;
+    const config = {
+      getOrThrow: vi.fn().mockReturnValue("wss://example/ws"),
+    } as Pick<ConfigService, "getOrThrow"> as ConfigService;
+    const http = {} as Pick<PolymarketHttpClient, never> as PolymarketHttpClient;
+    const applyMarketResolvedFromWs = vi.fn().mockResolvedValue(undefined);
+    const resolution = {
+      applyMarketResolvedFromWs,
+    } as Pick<
+      PolymarketMarketResolutionService,
+      "applyMarketResolvedFromWs"
+    > as PolymarketMarketResolutionService;
+
+    const client = new PolymarketWsClient(config, http, resolution, tradesQueue);
+
+    const payload = {
+      event_type: "market_resolved",
+      market: "0xabc",
+      winning_asset_id: "token-win",
+      winning_outcome: "Yes",
+    };
+
+    (client as unknown as WsClientInternals).dispatchParsedWsPayload(payload);
+
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(applyMarketResolvedFromWs).toHaveBeenCalledWith({
+      conditionId: "0xabc",
+      winningAssetId: "token-win",
+      winningOutcome: "Yes",
+    });
+    expect(add).not.toHaveBeenCalled();
   });
 });

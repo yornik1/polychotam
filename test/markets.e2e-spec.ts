@@ -34,6 +34,8 @@ describe("GET /markets (e2e)", () => {
   let app: INestApplication;
   const fetchMarkets = vi.fn<() => Promise<unknown[]>>();
   const fetchSimplifiedMarkets = vi.fn<() => Promise<unknown[]>>();
+  const fetchActiveMarketsFromGamma = vi.fn<() => Promise<unknown[]>>();
+  const fetchRecentlyResolvedMarketsFromGamma = vi.fn<() => Promise<unknown[]>>();
 
   beforeAll(async () => {
     vi.stubEnv("DATABASE_URL", "postgres://test:test@127.0.0.1:5432/polychotam_test");
@@ -72,8 +74,22 @@ describe("GET /markets (e2e)", () => {
       },
     ]);
 
+    fetchActiveMarketsFromGamma.mockResolvedValue([
+      {
+        conditionId: "0xmarket1",
+        slug: "btc-above-100k",
+        question: "Will BTC be above $100k?",
+        clobTokenIds: ["token-yes", "token-no"],
+        active: true,
+        closed: false,
+        volume24hr: 100,
+      },
+    ]);
+    fetchRecentlyResolvedMarketsFromGamma.mockResolvedValue([]);
+
     const emptyRepo = {
       upsert: vi.fn().mockResolvedValue(undefined),
+      find: vi.fn().mockResolvedValue([]),
     } as Partial<Repository<Market>>;
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -132,7 +148,12 @@ describe("GET /markets (e2e)", () => {
         telegram: { sendMessage: vi.fn() },
       })
       .overrideProvider(PolymarketHttpClient)
-      .useValue({ fetchMarkets, fetchSimplifiedMarkets })
+      .useValue({
+        fetchMarkets,
+        fetchSimplifiedMarkets,
+        fetchActiveMarketsFromGamma,
+        fetchRecentlyResolvedMarketsFromGamma,
+      })
       .overrideProvider(PolymarketWsClient)
       .useValue({ connect: vi.fn(), onModuleDestroy: vi.fn() })
       .compile();

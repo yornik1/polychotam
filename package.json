@@ -31,6 +31,7 @@
     "@nestjs/platform-express": "^11.1.6",
     "@nestjs/platform-socket.io": "^11.1.17",
     "@nestjs/platform-ws": "^11.1.6",
+    "@nestjs/schedule": "^5.0.1",
     "@nestjs/typeorm": "^11.0.0",
     "@polymarket/clob-client": "^5.8.1",
     "bullmq": "^5.58.5",
