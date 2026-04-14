@@ -4,6 +4,7 @@ import type { TradeEnrichmentJob } from "../types/contracts.js";
 import { LiveTradeEnricherService } from "../polymarket/live-trade-enricher.service.js";
 import { TradesService } from "../trades/trades.service.js";
 import { TradeAlertService } from "../telegram/trade-alert.service.js";
+import { BullJobNdjsonLogService } from "./bull-job-ndjson-log.service.js";
 import {
   TRADE_ENRICHMENT_JOB_PROCESS,
 } from "./trades-queue.config.js";
@@ -12,8 +13,28 @@ import { TradeEnrichmentProcessor } from "./trade-enrichment.processor.js";
 function jobStub(
   name: string,
   data: TradeEnrichmentJob,
-): Pick<Job<TradeEnrichmentJob>, "name" | "data"> {
-  return { name, data };
+  overrides: {
+    attemptsMade?: number;
+    opts?: { attempts?: number };
+    id?: string;
+  } = {},
+): Pick<Job<TradeEnrichmentJob>, "id" | "name" | "data" | "attemptsMade" | "opts"> {
+  return {
+    id: overrides.id ?? "test-enrich-job-id",
+    name,
+    data,
+    attemptsMade: overrides.attemptsMade ?? 0,
+    opts: overrides.opts ?? { attempts: 3 },
+  };
+}
+
+function stubNdjsonLog(): BullJobNdjsonLogService {
+  return {
+    append: vi.fn(),
+    isEnabled: vi.fn().mockReturnValue(true),
+    getAbsolutePath: vi.fn().mockReturnValue("/tmp/bull-job-errors.ndjson"),
+    logWorkerFailed: vi.fn(),
+  } as unknown as BullJobNdjsonLogService;
 }
 
 describe("TradeEnrichmentProcessor", () => {
@@ -38,6 +59,7 @@ describe("TradeEnrichmentProcessor", () => {
       { findMakerAddress } as unknown as LiveTradeEnricherService,
       { updateMakerAddress } as unknown as TradesService,
       { maybeSendTradeAlert } as unknown as TradeAlertService,
+      stubNdjsonLog(),
     );
 
     await processor.process(
@@ -51,10 +73,11 @@ describe("TradeEnrichmentProcessor", () => {
       market: "0xmarket",
       side: "BUY",
       amount: "219.217767",
+      tradeTimestamp: 1700000000000,
     });
   });
 
-  it("бросает ошибку, если enrichment не нашёл адрес", async () => {
+  it("бросает ошибку для ретрая, если не последняя попытка", async () => {
     const findMakerAddress = vi.fn().mockResolvedValue(null);
     const updateMakerAddress = vi.fn().mockResolvedValue(undefined);
     const maybeSendTradeAlert = vi.fn().mockResolvedValue(false);
@@ -63,15 +86,52 @@ describe("TradeEnrichmentProcessor", () => {
       { findMakerAddress } as unknown as LiveTradeEnricherService,
       { updateMakerAddress } as unknown as TradesService,
       { maybeSendTradeAlert } as unknown as TradeAlertService,
+      stubNdjsonLog(),
     );
 
     await expect(
       processor.process(
-        jobStub(TRADE_ENRICHMENT_JOB_PROCESS, createJob()) as Job<TradeEnrichmentJob>,
+        jobStub(TRADE_ENRICHMENT_JOB_PROCESS, createJob(), {
+          attemptsMade: 0,
+          opts: { attempts: 3 },
+        }) as Job<TradeEnrichmentJob>,
       ),
     ).rejects.toThrow(/maker address/i);
 
     expect(updateMakerAddress).not.toHaveBeenCalled();
     expect(maybeSendTradeAlert).not.toHaveBeenCalled();
+  });
+
+  it("на последней попытке не бросает, а завершается без обновления", async () => {
+    const findMakerAddress = vi.fn().mockResolvedValue(null);
+    const updateMakerAddress = vi.fn().mockResolvedValue(undefined);
+    const maybeSendTradeAlert = vi.fn().mockResolvedValue(false);
+    const ndjson = stubNdjsonLog();
+
+    const processor = new TradeEnrichmentProcessor(
+      { findMakerAddress } as unknown as LiveTradeEnricherService,
+      { updateMakerAddress } as unknown as TradesService,
+      { maybeSendTradeAlert } as unknown as TradeAlertService,
+      ndjson,
+    );
+
+    await expect(
+      processor.process(
+        jobStub(TRADE_ENRICHMENT_JOB_PROCESS, createJob(), {
+          attemptsMade: 2,
+          opts: { attempts: 3 },
+        }) as Job<TradeEnrichmentJob>,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(updateMakerAddress).not.toHaveBeenCalled();
+    expect(maybeSendTradeAlert).not.toHaveBeenCalled();
+    expect(ndjson.append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "enrichment_maker_not_found_final",
+        jobId: "test-enrich-job-id",
+        failedReason: expect.stringContaining("maker address"),
+      }),
+    );
   });
 });

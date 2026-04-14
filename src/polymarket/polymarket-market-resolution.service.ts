@@ -7,6 +7,7 @@ import type { WalletRecalculateJob } from "../types/contracts.js";
 import { Trade } from "../trades/trade.entity.js";
 import { Market } from "../markets/market.entity.js";
 import {
+  tradesDerivedJobId,
   WALLET_ANALYTICS_JOB_RECALCULATE,
   WALLET_ANALYTICS_QUEUE_NAME,
 } from "../queue/trades-queue.config.js";
@@ -81,7 +82,9 @@ export class PolymarketMarketResolutionService {
       await this.walletAnalyticsQueue.add(
         WALLET_ANALYTICS_JOB_RECALCULATE,
         { address },
-        { jobId: `wallet-recalculate:${address}` },
+        {
+          jobId: tradesDerivedJobId(WALLET_ANALYTICS_JOB_RECALCULATE, address),
+        },
       );
     }
   }

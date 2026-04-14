@@ -8,6 +8,7 @@ import { TradeAlertService } from "./trade-alert.service.js";
 describe("TradeAlertService", () => {
   function createService(overrides?: {
     threshold?: string;
+    dedupTtlMs?: string;
     isTopWallet?: boolean;
     sendAlert?: boolean;
     marketLabel?: { question?: string; market_slug?: string } | null;
@@ -22,6 +23,9 @@ describe("TradeAlertService", () => {
     const get = vi.fn((key: string) => {
       if (key === "ALERT_THRESHOLD_AMOUNT") {
         return overrides?.threshold;
+      }
+      if (key === "ALERT_DEDUP_TTL_MS") {
+        return overrides?.dedupTtlMs;
       }
 
       return undefined;
@@ -154,5 +158,26 @@ describe("TradeAlertService", () => {
     expect(findByConditionId).toHaveBeenCalledWith("0xmarket");
     expect(sendAlert).toHaveBeenCalledWith(expect.stringContaining("Will BTC be above $100k?"));
     expect(sendAlert).not.toHaveBeenCalledWith(expect.stringContaining("Маркет: 0xmarket"));
+  });
+
+  it("не дублирует alert при повторном вызове с тем же tradeTimestamp в окне dedup", async () => {
+    const { service, sendAlert } = createService({
+      threshold: "1000",
+      isTopWallet: true,
+      dedupTtlMs: "60000",
+    });
+
+    const payload = {
+      address: "0xmaker",
+      market: "0xmarket",
+      side: "BUY" as const,
+      amount: "1500",
+      tradeTimestamp: 1_700_000_001,
+    };
+
+    await expect(service.maybeSendTradeAlert(payload)).resolves.toBe(true);
+    await expect(service.maybeSendTradeAlert(payload)).resolves.toBe(false);
+
+    expect(sendAlert).toHaveBeenCalledTimes(1);
   });
 });

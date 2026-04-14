@@ -1,8 +1,7 @@
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { forwardRef, Module } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { Market } from "../markets/market.entity.js";
 import { MarketSyncService } from "../markets/market-sync.service.js";
-import { QueueModule } from "../queue/queue.module.js";
 import { Trade } from "../trades/trade.entity.js";
 import { BackfillService } from "./backfill.service.js";
 import { GammaMarketCronService } from "./polymarket-gamma-cron.service.js";
@@ -16,7 +15,6 @@ import { PolymarketWsClient } from "./polymarket-ws.client.js";
 
 @Module({
   imports: [
-    forwardRef(() => QueueModule),
     TypeOrmModule.forFeature([Market, Trade]),
     PolymarketEnrichmentModule,
   ],

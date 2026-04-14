@@ -5,16 +5,21 @@ import { WalletsService } from "../wallets/wallets.service.js";
 import { TelegramService } from "./telegram.service.js";
 
 const DEFAULT_ALERT_THRESHOLD_AMOUNT = 1000;
+const DEFAULT_ALERT_DEDUP_TTL_MS = 180_000;
 
 interface TradeAlertInput {
   address: string;
   market: string;
   side: string;
   amount: string;
+  /** Время сделки из WS (дедуп при ретраях BullMQ и повторах кадра). */
+  tradeTimestamp?: number;
 }
 
 @Injectable()
 export class TradeAlertService {
+  private readonly recentAlertAt = new Map<string, number>();
+
   constructor(
     private readonly configService: ConfigService,
     private readonly marketsService: MarketsService,
@@ -33,13 +38,60 @@ export class TradeAlertService {
       return false;
     }
 
+    const dedupTtlMs = this.resolveDedupTtlMs();
+    const now = Date.now();
+    this.pruneDedupEntries(now, dedupTtlMs);
+    const dedupKey = this.buildDedupKey(input, address);
+    const lastSent = this.recentAlertAt.get(dedupKey);
+    if (
+      lastSent !== undefined &&
+      now - lastSent < dedupTtlMs
+    ) {
+      return false;
+    }
+
     const isTopWallet = await this.walletsService.isTopWallet(address);
     if (!isTopWallet) {
       return false;
     }
 
     const marketLabel = await this.resolveMarketLabel(input.market);
-    return this.telegramService.sendAlert(this.formatAlertMessage(input, marketLabel, amount));
+    const sent = await this.telegramService.sendAlert(
+      this.formatAlertMessage(input, marketLabel, amount),
+    );
+    if (sent) {
+      this.recentAlertAt.set(dedupKey, Date.now());
+    }
+    return sent;
+  }
+
+  private resolveDedupTtlMs(): number {
+    const raw = this.configService.get<string>("ALERT_DEDUP_TTL_MS");
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return DEFAULT_ALERT_DEDUP_TTL_MS;
+    }
+    return Math.min(Math.floor(parsed), 3_600_000);
+  }
+
+  private buildDedupKey(input: TradeAlertInput, normalizedAddress: string): string {
+    const ts = input.tradeTimestamp ?? 0;
+    return [
+      normalizedAddress.toLowerCase(),
+      input.market.trim().toLowerCase(),
+      input.side,
+      input.amount,
+      String(ts),
+    ].join("\u0001");
+  }
+
+  private pruneDedupEntries(now: number, ttlMs: number): void {
+    const cutoff = now - ttlMs * 2;
+    for (const [key, at] of this.recentAlertAt) {
+      if (at < cutoff) {
+        this.recentAlertAt.delete(key);
+      }
+    }
   }
 
   private resolveThresholdAmount(): number {

@@ -4,6 +4,7 @@ import type { TradeEnrichmentJob } from "../types/contracts.js";
 
 const DEFAULT_POLYMARKET_DATA_API_URL = "https://data-api.polymarket.com";
 const ENRICHMENT_FETCH_LIMIT = 200;
+const TIMESTAMP_TOLERANCE_SEC = 2;
 
 interface HistoricalTradeCandidate {
   readonly market?: unknown;
@@ -52,6 +53,16 @@ function asTimestamp(value: unknown): number | null {
 
 function normalizeToSeconds(timestamp: number): number {
   return timestamp > 1e12 ? Math.floor(timestamp / 1000) : Math.floor(timestamp);
+}
+
+/** Числовое сравнение строковых значений price/size (игнорирует trailing zeros: "10" == "10.00"). */
+function numericEqual(a: string, b: string): boolean {
+  if (a === b) {
+    return true;
+  }
+  const na = Number(a);
+  const nb = Number(b);
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
 }
 
 @Injectable()
@@ -132,9 +143,9 @@ export class LiveTradeEnricherService {
       market === job.market &&
       assetId === job.assetId &&
       side === job.side &&
-      size === job.amount &&
-      price === job.price &&
-      normalizeToSeconds(timestamp) === normalizeToSeconds(job.timestamp)
+      numericEqual(size, job.amount) &&
+      numericEqual(price, job.price) &&
+      Math.abs(normalizeToSeconds(timestamp) - normalizeToSeconds(job.timestamp)) <= TIMESTAMP_TOLERANCE_SEC
     );
   }
 }

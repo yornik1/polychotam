@@ -32,7 +32,9 @@ describe("TradesService.saveFromWsTradeEvent", () => {
       timestamp: 1_700_000_000_000,
     };
 
-    await service.saveFromWsTradeEvent(event);
+    await expect(service.saveFromWsTradeEvent(event)).resolves.toBe(
+      "skipped_empty_market",
+    );
 
     expect(marketFindOne).not.toHaveBeenCalled();
     expect(tradeFindOne).not.toHaveBeenCalled();
@@ -95,7 +97,9 @@ describe("TradesService.saveFromWsTradeEvent", () => {
       timestamp: 1750428146322,
     };
 
-    await service.saveFromWsTradeEvent(event);
+    await expect(service.saveFromWsTradeEvent(event)).resolves.toBe(
+      "inserted_live",
+    );
 
     expect(marketCreate).toHaveBeenCalledWith(
       expect.objectContaining(stubMarket),
@@ -147,7 +151,9 @@ describe("TradesService.saveFromWsTradeEvent", () => {
       timestamp: 1000,
     };
 
-    await service.saveFromWsTradeEvent(event);
+    await expect(service.saveFromWsTradeEvent(event)).resolves.toBe(
+      "duplicate_live",
+    );
 
     expect(tradeSave).not.toHaveBeenCalled();
   });
@@ -196,9 +202,9 @@ describe("TradesService.saveFromWsTradeEvent", () => {
       traderSide: "TAKER" as const,
     };
 
-    await service.saveFromWsTradeEvent(
-      historicalEvent as unknown as TradeEvent,
-    );
+    await expect(
+      service.saveFromWsTradeEvent(historicalEvent as unknown as TradeEvent),
+    ).resolves.toBe("historical_upserted");
 
     expect(tradeUpsert).toHaveBeenCalledWith(
       expect.objectContaining({

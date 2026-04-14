@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  tradesDerivedJobId,
   TRADES_JOB_PROCESS,
   TRADES_QUEUE_NAME,
   tradesQueueRegisterOptions,
@@ -38,5 +39,15 @@ describe("trades-queue.config", () => {
         removeOnFail: 5000,
       },
     });
+  });
+
+  it("tradesDerivedJobId не содержит двоеточий (требование BullMQ)", () => {
+    expect(tradesDerivedJobId(WALLET_ANALYTICS_JOB_RECALCULATE, "0xabc")).toBe(
+      "wallet-recalculate-0xabc",
+    );
+    expect(tradesDerivedJobId("trade-enrichment", "ws:dead")).toBe(
+      "trade-enrichment-ws-dead",
+    );
+    expect(tradesDerivedJobId("p", "a:b:c")).toBe("p-a-b-c");
   });
 });

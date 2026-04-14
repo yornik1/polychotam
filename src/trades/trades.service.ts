@@ -12,6 +12,13 @@ type HistoricalTradeEvent = TradeEvent & {
 };
 type TradeUpsertPayload = Parameters<Repository<Trade>["upsert"]>[0];
 
+/** Результат записи WS-сделки для ветвления в TradesProcessor (алерты / enrichment). */
+export type SaveWsTradeOutcome =
+  | "skipped_empty_market"
+  | "historical_upserted"
+  | "inserted_live"
+  | "duplicate_live";
+
 /**
  * Событие last_trade_price не содержит полного CLOB Trade — поля без данных
  * заполняются заглушками с префиксом ws- / RECORDED_WS.
@@ -30,20 +37,20 @@ export class TradesService {
   /**
    * Идемпотентная запись: один и тот же payload WS даёт один и тот же `id` (повторы BullMQ безопасны).
    */
-  async saveFromWsTradeEvent(event: TradeEvent): Promise<void> {
+  async saveFromWsTradeEvent(event: TradeEvent): Promise<SaveWsTradeOutcome> {
     const conditionId = event.market.trim();
     if (conditionId.length === 0) {
       this.logger.warn(
         "Пропуск сохранения сделки WS: пустой market (condition id)",
       );
-      return;
+      return "skipped_empty_market";
     }
 
     const market = await this.ensureMarketStub(conditionId);
     const historicalEvent = this.asHistoricalTradeEvent(event);
     if (historicalEvent !== null) {
       await this.upsertHistoricalTrade(market, historicalEvent);
-      return;
+      return "historical_upserted";
     }
 
     const id = buildWsTradeRecordId(event);
@@ -52,7 +59,7 @@ export class TradesService {
 
     const existing = await this.tradeRepository.findOne({ where: { id } });
     if (existing !== null) {
-      return;
+      return "duplicate_live";
     }
 
     const trade = this.tradeRepository.create({
@@ -77,6 +84,30 @@ export class TradesService {
     });
 
     await this.tradeRepository.save(trade);
+    return "inserted_live";
+  }
+
+  /**
+   * Live WS-строка ещё без реального maker (нужен enrichment).
+   */
+  async isWsTradePendingEnrichment(tradeRecordId: string): Promise<boolean> {
+    const normalizedId = tradeRecordId.trim();
+    if (normalizedId.length === 0) {
+      return false;
+    }
+
+    const row = await this.tradeRepository.findOne({
+      where: { id: normalizedId },
+      select: { maker_address: true, status: true },
+    });
+    if (row === null) {
+      return false;
+    }
+    if (row.status !== "RECORDED_WS") {
+      return false;
+    }
+    const maker = row.maker_address?.trim() ?? "";
+    return maker.length === 0 || maker.toLowerCase() === "unknown";
   }
 
   async updateMakerAddress(tradeRecordId: string, makerAddress: string): Promise<void> {

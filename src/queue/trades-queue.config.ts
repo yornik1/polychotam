@@ -9,6 +9,18 @@ export const TRADES_JOB_BACKFILL_PAGE = "backfill-page";
 export const WALLET_ANALYTICS_JOB_RECALCULATE = "wallet-recalculate";
 export const TRADE_ENRICHMENT_JOB_PROCESS = "enrich-trade";
 
+/** Префикс пользовательского jobId для enrichment (имя job — `enrich-trade`). */
+export const TRADE_ENRICHMENT_JOB_ID_PREFIX = "trade-enrichment";
+
+/**
+ * BullMQ не допускает двоеточие в пользовательском jobId (Job.validateOptions).
+ * Коалесцирование сохраняем: `ws:hash` → `ws-hash`, адрес без изменений.
+ */
+export function tradesDerivedJobId(prefix: string, uniqueKey: string): string {
+  const safe = uniqueKey.trim().replace(/:/g, "-");
+  return `${prefix}-${safe}`;
+}
+
 /** Регистрация очереди + retry по умолчанию (DoD: 3 попытки, exponential backoff). */
 export const tradesQueueRegisterOptions = {
   name: TRADES_QUEUE_NAME,
@@ -37,7 +49,26 @@ export const tradeEnrichmentQueueRegisterOptions = {
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: "exponential" as const, delay: 10000 },
-    removeOnComplete: true,
+    // Иначе «тихий» return после исчерпания попыток (maker не найден) сразу исчезает из Bull Board.
+    removeOnComplete: 200,
     removeOnFail: 5000,
   },
+} as const;
+
+/** BullMQ: тяжёлые джобы (recalculate, HTTP enrichment) не должны помечаться stalled. */
+export const TRADES_WORKER_OPTIONS = {
+  lockDuration: 300_000,
+  limiter: { max: 50, duration: 1000 },
+} as const;
+
+export const WALLET_ANALYTICS_WORKER_OPTIONS = {
+  lockDuration: 300_000,
+  concurrency: 2,
+  limiter: { max: 8, duration: 1000 },
+} as const;
+
+export const TRADE_ENRICHMENT_WORKER_OPTIONS = {
+  lockDuration: 240_000,
+  concurrency: 2,
+  limiter: { max: 5, duration: 1000 },
 } as const;

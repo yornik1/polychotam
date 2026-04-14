@@ -45,6 +45,7 @@ describe("GET /markets (e2e)", () => {
     vi.stubEnv("POLYMARKET_WS_URL", "wss://example.com/ws");
     vi.stubEnv("POLYMARKET_REST_URL", "https://example.com");
     vi.stubEnv("POLYMARKET_MARKETS_PATH", "/markets");
+    vi.stubEnv("BULL_JOB_ERRORS_LOG_PATH", "");
 
     fetchMarkets.mockResolvedValue([
       {

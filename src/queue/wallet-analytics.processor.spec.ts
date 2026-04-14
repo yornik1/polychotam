@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Job } from "bullmq";
 import type { WalletRecalculateJob } from "../types/contracts.js";
 import { WalletsService } from "../wallets/wallets.service.js";
+import { BullJobNdjsonLogService } from "./bull-job-ndjson-log.service.js";
 import { WALLET_ANALYTICS_JOB_RECALCULATE } from "./trades-queue.config.js";
 import { WalletAnalyticsProcessor } from "./wallet-analytics.processor.js";
 
@@ -12,11 +13,21 @@ function jobStub(
   return { name, data };
 }
 
+function stubNdjson(): BullJobNdjsonLogService {
+  return {
+    append: vi.fn(),
+    isEnabled: vi.fn().mockReturnValue(false),
+    getAbsolutePath: vi.fn().mockReturnValue(null),
+    logWorkerFailed: vi.fn(),
+  } as unknown as BullJobNdjsonLogService;
+}
+
 describe("WalletAnalyticsProcessor", () => {
   it("вызывает walletsService.recalculate для job пересчёта", async () => {
     const recalculate = vi.fn().mockResolvedValue(undefined);
     const processor = new WalletAnalyticsProcessor(
       { recalculate } as unknown as WalletsService,
+      stubNdjson(),
     );
 
     await processor.process(
@@ -30,6 +41,7 @@ describe("WalletAnalyticsProcessor", () => {
     const recalculate = vi.fn().mockResolvedValue(undefined);
     const processor = new WalletAnalyticsProcessor(
       { recalculate } as unknown as WalletsService,
+      stubNdjson(),
     );
 
     await processor.process(

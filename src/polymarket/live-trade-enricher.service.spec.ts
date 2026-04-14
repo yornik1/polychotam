@@ -85,6 +85,78 @@ describe("LiveTradeEnricherService", () => {
     expect(result).toBeNull();
   });
 
+  it("матчит сделку при различии форматирования price/size (trailing zeros)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          {
+            market: "0xmarket",
+            asset_id: "asset-1",
+            side: "BUY",
+            size: "219.21776700",
+            price: "0.4560",
+            match_time: 1700000000,
+            maker_address: "0xtrailing",
+          },
+        ]),
+      }),
+    );
+
+    const result = await createService().findMakerAddress(createJob());
+
+    expect(result).toBe("0xtrailing");
+  });
+
+  it("матчит сделку при расхождении timestamp в пределах 2 секунд", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          {
+            market: "0xmarket",
+            asset_id: "asset-1",
+            side: "BUY",
+            size: "219.217767",
+            price: "0.456",
+            match_time: 1700000002,
+            maker_address: "0xclose-ts",
+          },
+        ]),
+      }),
+    );
+
+    const result = await createService().findMakerAddress(createJob());
+
+    expect(result).toBe("0xclose-ts");
+  });
+
+  it("не матчит сделку при расхождении timestamp больше 2 секунд", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          {
+            market: "0xmarket",
+            asset_id: "asset-1",
+            side: "BUY",
+            size: "219.217767",
+            price: "0.456",
+            match_time: 1700000004,
+            maker_address: "0xfar-ts",
+          },
+        ]),
+      }),
+    );
+
+    const result = await createService().findMakerAddress(createJob());
+
+    expect(result).toBeNull();
+  });
+
   it("бросает ошибку при невалидном payload upstream", async () => {
     vi.stubGlobal(
       "fetch",

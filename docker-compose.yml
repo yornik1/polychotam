@@ -13,6 +13,9 @@ services:
         condition: service_started
     ports:
       - "3000:3000"
+    volumes:
+      # NDJSON ошибок BullMQ (BULL_JOB_ERRORS_LOG_PATH по умолчанию logs/... от cwd=/app)
+      - ./logs:/app/logs
     restart: unless-stopped
 
   postgres:
