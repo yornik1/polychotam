@@ -9,14 +9,22 @@ describe("TradeAlertService", () => {
   function createService(overrides?: {
     threshold?: string;
     dedupTtlMs?: string;
-    isTopWallet?: boolean;
+    isTopWhale?: boolean;
+    isTopMarket?: boolean;
     sendAlert?: boolean;
     marketLabel?: { question?: string; market_slug?: string } | null;
   }) {
     const sendAlert = vi.fn().mockResolvedValue(overrides?.sendAlert ?? true);
-    const isTopWallet = vi
-      .fn<(address: string) => Promise<boolean>>()
-      .mockResolvedValue(overrides?.isTopWallet ?? true);
+    const getTopWalletsByVolumeOnTopMarkets = vi
+      .fn<() => Promise<Array<{ address: string; totalVolume: string; tradeCount: number }>>>()
+      .mockResolvedValue(
+        overrides?.isTopWhale
+          ? [{ address: "0xmaker", totalVolume: "5000000", tradeCount: 100 }]
+          : [],
+      );
+    const isTopMarket = vi
+      .fn<(conditionId: string, limit?: number) => Promise<boolean>>()
+      .mockResolvedValue(overrides?.isTopMarket ?? true);
     const findByConditionId = vi
       .fn<(conditionId: string) => Promise<{ question?: string; market_slug?: string } | null>>()
       .mockResolvedValue(overrides?.marketLabel ?? null);
@@ -33,18 +41,19 @@ describe("TradeAlertService", () => {
 
     const service = new TradeAlertService(
       { get } as unknown as ConfigService,
-      { findByConditionId } as unknown as MarketsService,
-      { isTopWallet } as unknown as WalletsService,
+      { findByConditionId, isTopMarket } as unknown as MarketsService,
+      { getTopWalletsByVolumeOnTopMarkets } as unknown as WalletsService,
       { sendAlert } as unknown as TelegramService,
     );
 
-    return { service, isTopWallet, sendAlert, findByConditionId };
+    return { service, getTopWalletsByVolumeOnTopMarkets, isTopMarket, sendAlert, findByConditionId };
   }
 
   it("отправляет alert для top-wallet при сумме выше порога", async () => {
-    const { service, isTopWallet, sendAlert } = createService({
+    const { service, getTopWalletsByVolumeOnTopMarkets, isTopMarket, sendAlert } = createService({
       threshold: "1000",
-      isTopWallet: true,
+      isTopWhale: true,
+      isTopMarket: true,
     });
 
     await expect(
@@ -56,15 +65,16 @@ describe("TradeAlertService", () => {
       }),
     ).resolves.toBe(true);
 
-    expect(isTopWallet).toHaveBeenCalledWith("0xmaker");
+    expect(getTopWalletsByVolumeOnTopMarkets).toHaveBeenCalled();
+    expect(isTopMarket).toHaveBeenCalledWith("0xmarket", 20);
     expect(sendAlert).toHaveBeenCalledWith(expect.stringContaining("0xmaker"));
     expect(sendAlert).toHaveBeenCalledWith(expect.stringContaining("$1500"));
   });
 
   it("не отправляет alert, если сумма ниже порога", async () => {
-    const { service, isTopWallet, sendAlert } = createService({
+    const { service, getTopWalletsByVolumeOnTopMarkets, sendAlert } = createService({
       threshold: "1000",
-      isTopWallet: true,
+      isTopWhale: true,
     });
 
     await expect(
@@ -76,14 +86,15 @@ describe("TradeAlertService", () => {
       }),
     ).resolves.toBe(false);
 
-    expect(isTopWallet).not.toHaveBeenCalled();
+    expect(getTopWalletsByVolumeOnTopMarkets).not.toHaveBeenCalled();
     expect(sendAlert).not.toHaveBeenCalled();
   });
 
   it("отправляет alert при сумме ровно на пороге", async () => {
-    const { service, isTopWallet, sendAlert } = createService({
+    const { service, getTopWalletsByVolumeOnTopMarkets, sendAlert } = createService({
       threshold: "1000",
-      isTopWallet: true,
+      isTopWhale: true,
+      isTopMarket: true,
     });
 
     await expect(
@@ -95,14 +106,15 @@ describe("TradeAlertService", () => {
       }),
     ).resolves.toBe(true);
 
-    expect(isTopWallet).toHaveBeenCalledWith("0xmaker");
+    expect(getTopWalletsByVolumeOnTopMarkets).toHaveBeenCalled();
     expect(sendAlert).toHaveBeenCalledTimes(1);
   });
 
   it("не отправляет alert, если кошелёк не входит в top-10", async () => {
-    const { service, sendAlert } = createService({
+    const { service, sendAlert, isTopMarket } = createService({
       threshold: "1000",
-      isTopWallet: false,
+      isTopWhale: false,
+      isTopMarket: true,
     });
 
     await expect(
@@ -114,13 +126,36 @@ describe("TradeAlertService", () => {
       }),
     ).resolves.toBe(false);
 
+    expect(isTopMarket).not.toHaveBeenCalled();
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+
+  it("не отправляет alert, если маркет не входит в топ-20", async () => {
+    const { service, sendAlert, getTopWalletsByVolumeOnTopMarkets, isTopMarket } = createService({
+      threshold: "1000",
+      isTopWhale: true,
+      isTopMarket: false,
+    });
+
+    await expect(
+      service.maybeSendTradeAlert({
+        address: "0xmaker",
+        market: "0xmarket",
+        side: "BUY",
+        amount: "1500",
+      }),
+    ).resolves.toBe(false);
+
+    expect(getTopWalletsByVolumeOnTopMarkets).toHaveBeenCalled();
+    expect(isTopMarket).toHaveBeenCalledWith("0xmarket", 20);
     expect(sendAlert).not.toHaveBeenCalled();
   });
 
   it("возвращает false, если TelegramService не смог отправить alert", async () => {
     const { service, sendAlert } = createService({
       threshold: "1000",
-      isTopWallet: true,
+      isTopWhale: true,
+      isTopMarket: true,
       sendAlert: false,
     });
 
@@ -139,7 +174,8 @@ describe("TradeAlertService", () => {
   it("подставляет question маркета вместо сырого condition_id", async () => {
     const { service, sendAlert, findByConditionId } = createService({
       threshold: "1000",
-      isTopWallet: true,
+      isTopWhale: true,
+      isTopMarket: true,
       marketLabel: {
         question: "Will BTC be above $100k?",
         market_slug: "btc-above-100k",
@@ -163,7 +199,8 @@ describe("TradeAlertService", () => {
   it("не дублирует alert при повторном вызове с тем же tradeTimestamp в окне dedup", async () => {
     const { service, sendAlert } = createService({
       threshold: "1000",
-      isTopWallet: true,
+      isTopWhale: true,
+      isTopMarket: true,
       dedupTtlMs: "60000",
     });
 

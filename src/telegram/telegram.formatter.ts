@@ -81,3 +81,23 @@ export function formatTopWalletsMessage(wallets: Wallet[]): string {
 
   return lines.join("\n");
 }
+
+export function formatTopWhalesMessage(
+  whales: Array<{ address: string; totalVolume: string; tradeCount: number }>,
+): string {
+  const lines = ["🐋 Топ-10 китов по объёму торговли на топовых маркетах:", ""];
+
+  for (const [index, whale] of whales.entries()) {
+    const volume = formatCurrency(Number(whale.totalVolume));
+    const polymarketUrl = `https://polymarket.com/profile/${whale.address}`;
+    lines.push(
+      `${index + 1}. [${formatWalletAddress(whale.address)}](${polymarketUrl}) — $${volume} (${whale.tradeCount} сделок)`,
+    );
+  }
+
+  if (whales.length === 0) {
+    lines.push("Нет данных");
+  }
+
+  return lines.join("\n");
+}

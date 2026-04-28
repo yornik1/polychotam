@@ -41,6 +41,25 @@ export class MarketsService {
     });
   }
 
+  async getTopMarkets(limit = 20): Promise<Market[]> {
+    return this.marketRepository
+      .createQueryBuilder("market")
+      .where("market.volume24hr > :minVolume", { minVolume: 100000 })
+      .orderBy("market.volume24hr", "DESC")
+      .limit(limit)
+      .getMany();
+  }
+
+  async isTopMarket(conditionId: string, topLimit = 20): Promise<boolean> {
+    const normalizedId = conditionId.trim();
+    if (normalizedId.length === 0) {
+      return false;
+    }
+
+    const topMarkets = await this.getTopMarkets(topLimit);
+    return topMarkets.some((m) => m.condition_id === normalizedId);
+  }
+
   async getMarkets(): Promise<MarketsResponseDto> {
     this.logger.log("Начинаю загрузку маркетов из Polymarket");
 

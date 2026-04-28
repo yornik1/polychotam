@@ -13,14 +13,16 @@ interface ReplyContext {
 describe("TelegramUpdate", () => {
   function createUpdate() {
     const findBySlug = vi.fn<(slug: string) => Promise<Market | null>>();
-    const getTopWallets = vi.fn<() => Promise<Wallet[]>>();
+    const getTopWalletsByVolumeOnTopMarkets = vi.fn<
+      () => Promise<Array<{ address: string; totalVolume: string; tradeCount: number }>>
+    >();
 
     const update = new TelegramUpdate(
       { findBySlug } as unknown as MarketsService,
-      { getTopWallets } as unknown as WalletsService,
+      { getTopWalletsByVolumeOnTopMarkets } as unknown as WalletsService,
     );
 
-    return { update, findBySlug, getTopWallets };
+    return { update, findBySlug, getTopWalletsByVolumeOnTopMarkets };
   }
 
   it("отвечает на /start списком команд", async () => {
@@ -80,22 +82,20 @@ describe("TelegramUpdate", () => {
     expect(reply).toHaveBeenCalledWith("Укажи slug: /market <slug>");
   });
 
-  it("отвечает formatted top wallets для /top", async () => {
-    const { update, getTopWallets } = createUpdate();
+  it("отвечает formatted top whales для /top", async () => {
+    const { update, getTopWalletsByVolumeOnTopMarkets } = createUpdate();
     const reply = vi.fn<(message: string) => void>();
-    getTopWallets.mockResolvedValue([
-      {
-        address: "0xABCDEF1234567890",
-        win_rate: "0.78",
-        total_won: "12400",
-        total_lost: "3000",
-        trade_count: 12,
-      },
-    ] as Wallet[]);
+    getTopWalletsByVolumeOnTopMarkets.mockResolvedValue([
+      { address: "0xABCDEF1234567890", totalVolume: "5000000", tradeCount: 150 },
+      { address: "0x1234567890ABCDEF", totalVolume: "3000000", tradeCount: 80 },
+    ]);
 
     await update.handleTop({ reply } as ReplyContext);
 
-    expect(getTopWallets).toHaveBeenCalledWith(10);
+    expect(getTopWalletsByVolumeOnTopMarkets).toHaveBeenCalledWith(10);
     expect(reply).toHaveBeenCalledWith(expect.stringContaining("0xABCD"));
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("китов"));
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("5,000,000"));
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("150 сделок"));
   });
 });

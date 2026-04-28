@@ -13,18 +13,25 @@ describe("MarketsService", () => {
   function createService() {
     const fetchMarkets = vi.fn<() => Promise<PolymarketMarketRaw[]>>();
     const findOne = vi.fn();
+    const createQueryBuilder = vi.fn(() => ({
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      getMany: vi.fn().mockResolvedValue([]),
+    }));
     const polymarketHttpClient = {
       fetchMarkets,
     };
     const marketRepository = {
       findOne,
-    } as Pick<Repository<Market>, "findOne">;
+      createQueryBuilder,
+    } as Pick<Repository<Market>, "findOne" | "createQueryBuilder">;
     const service = new MarketsService(
       polymarketHttpClient,
       marketRepository as Repository<Market>,
     );
 
-    return { service, fetchMarkets, findOne };
+    return { service, fetchMarkets, findOne, createQueryBuilder };
   }
 
   it("findBySlug ищет маркет в локальной таблице по market_slug", async () => {
@@ -259,5 +266,89 @@ describe("MarketsService", () => {
     const error = await service.getMarkets().catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it("getTopMarkets возвращает маркеты с volume24hr > 100k, отсортированные по убыванию", async () => {
+    const { service, createQueryBuilder } = createService();
+    const mockMarkets = [
+      { condition_id: "0xmarket1", volume24hr: 5000000 },
+      { condition_id: "0xmarket2", volume24hr: 2000000 },
+    ] as Market[];
+
+    const whereMock = vi.fn().mockReturnThis();
+    const orderByMock = vi.fn().mockReturnThis();
+    const limitMock = vi.fn().mockReturnThis();
+    const getManyMock = vi.fn().mockResolvedValue(mockMarkets);
+
+    createQueryBuilder.mockReturnValue({
+      where: whereMock,
+      orderBy: orderByMock,
+      limit: limitMock,
+      getMany: getManyMock,
+    });
+
+    const result = await service.getTopMarkets(20);
+
+    expect(createQueryBuilder).toHaveBeenCalled();
+    expect(whereMock).toHaveBeenCalledWith("market.volume24hr > :minVolume", { minVolume: 100000 });
+    expect(orderByMock).toHaveBeenCalledWith("market.volume24hr", "DESC");
+    expect(limitMock).toHaveBeenCalledWith(20);
+    expect(result).toEqual(mockMarkets);
+  });
+
+  it("isTopMarket возвращает true, если condition_id в топ-20", async () => {
+    const { service, createQueryBuilder } = createService();
+    const mockMarkets = [
+      { condition_id: "0xtop1", volume24hr: 5000000 },
+      { condition_id: "0xtop2", volume24hr: 2000000 },
+    ] as Market[];
+
+    const whereMock = vi.fn().mockReturnThis();
+    const orderByMock = vi.fn().mockReturnThis();
+    const limitMock = vi.fn().mockReturnThis();
+    const getManyMock = vi.fn().mockResolvedValue(mockMarkets);
+
+    createQueryBuilder.mockReturnValue({
+      where: whereMock,
+      orderBy: orderByMock,
+      limit: limitMock,
+      getMany: getManyMock,
+    });
+
+    const result = await service.isTopMarket("0xtop1", 20);
+
+    expect(result).toBe(true);
+  });
+
+  it("isTopMarket возвращает false, если condition_id не в топ-20", async () => {
+    const { service, createQueryBuilder } = createService();
+    const mockMarkets = [
+      { condition_id: "0xtop1", volume24hr: 5000000 },
+      { condition_id: "0xtop2", volume24hr: 2000000 },
+    ] as Market[];
+
+    const whereMock = vi.fn().mockReturnThis();
+    const orderByMock = vi.fn().mockReturnThis();
+    const limitMock = vi.fn().mockReturnThis();
+    const getManyMock = vi.fn().mockResolvedValue(mockMarkets);
+
+    createQueryBuilder.mockReturnValue({
+      where: whereMock,
+      orderBy: orderByMock,
+      limit: limitMock,
+      getMany: getManyMock,
+    });
+
+    const result = await service.isTopMarket("0xnottop", 20);
+
+    expect(result).toBe(false);
+  });
+
+  it("isTopMarket возвращает false для пустого condition_id", async () => {
+    const { service } = createService();
+
+    const result = await service.isTopMarket("", 20);
+
+    expect(result).toBe(false);
   });
 });

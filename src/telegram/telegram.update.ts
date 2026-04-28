@@ -5,7 +5,7 @@ import { WalletsService } from "../wallets/wallets.service.js";
 import {
   formatMarketMessage,
   formatStartMessage,
-  formatTopWalletsMessage,
+  formatTopWhalesMessage,
 } from "./telegram.formatter.js";
 
 interface ReplyContext {
@@ -45,7 +45,7 @@ export class TelegramUpdate {
 
   @Command("top")
   async handleTop(@Ctx() ctx: ReplyContext): Promise<void> {
-    const wallets = await this.walletsService.getTopWallets(10);
-    await ctx.reply(formatTopWalletsMessage(wallets));
+    const whaleAddresses = await this.walletsService.getTopWalletsByVolumeOnTopMarkets(10);
+    await ctx.reply(formatTopWhalesMessage(whaleAddresses));
   }
 }

@@ -122,6 +122,42 @@ export class WalletsService {
     return this.topWalletsCache.addresses.has(normalizedAddress);
   }
 
+  /**
+   * Топ-кошельки по объёму торговли на топовых маркетах (volume24hr > 1M) за последние 7 дней.
+   * Учитываются только крупные сделки (> $10,000) для фильтрации мелких трейдеров.
+   * Используется для алертов о сделках китов на активных маркетах.
+   */
+  async getTopWalletsByVolumeOnTopMarkets(
+    limit = 10,
+  ): Promise<Array<{ address: string; totalVolume: string; tradeCount: number }>> {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const minTradeSize = 10000; // Минимальный размер сделки для учёта
+
+    const result = await this.tradeRepository
+      .createQueryBuilder("trade")
+      .select("trade.maker_address", "address")
+      .addSelect("SUM(CAST(trade.size AS DECIMAL))", "total_volume")
+      .addSelect("COUNT(*)", "trade_count")
+      .innerJoin("trade.market", "market")
+      .where("market.volume24hr > :minVolume", { minVolume: 1000000 })
+      .andWhere("trade.match_time >= :since", { since: sevenDaysAgo })
+      .andWhere("trade.maker_address IS NOT NULL")
+      .andWhere("trade.maker_address != :unknown", { unknown: "unknown" })
+      .andWhere("CAST(trade.size AS DECIMAL) > :minTradeSize", { minTradeSize })
+      .groupBy("trade.maker_address")
+      .orderBy("total_volume", "DESC")
+      .limit(limit)
+      .getRawMany<{ address: string; total_volume: string; trade_count: string }>();
+
+    return result
+      .map((row) => ({
+        address: row.address.trim(),
+        totalVolume: row.total_volume,
+        tradeCount: Number(row.trade_count),
+      }))
+      .filter((item) => item.address.length > 0);
+  }
+
   private formatDecimal(value: number): string {
     if (!Number.isFinite(value) || value === 0) {
       return "0";
