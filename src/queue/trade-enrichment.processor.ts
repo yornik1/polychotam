@@ -31,6 +31,14 @@ export class TradeEnrichmentProcessor extends WorkerHost {
     error: Error,
     prev: string,
   ): void {
+    const maxAttempts = job?.opts?.attempts ?? 3;
+    // Промежуточный ретрай — BullMQ сам перезапустит, логировать не нужно
+    if (
+      job !== undefined &&
+      (job.attemptsMade ?? 0) < maxAttempts
+    ) {
+      return;
+    }
     this.bullNdjsonLog.logWorkerFailed(
       TRADE_ENRICHMENT_QUEUE_NAME,
       job,

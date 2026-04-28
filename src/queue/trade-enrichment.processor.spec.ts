@@ -7,6 +7,7 @@ import { TradeAlertService } from "../telegram/trade-alert.service.js";
 import { BullJobNdjsonLogService } from "./bull-job-ndjson-log.service.js";
 import {
   TRADE_ENRICHMENT_JOB_PROCESS,
+  TRADE_ENRICHMENT_QUEUE_NAME,
 } from "./trades-queue.config.js";
 import { TradeEnrichmentProcessor } from "./trade-enrichment.processor.js";
 
@@ -132,6 +133,48 @@ describe("TradeEnrichmentProcessor", () => {
         jobId: "test-enrich-job-id",
         failedReason: expect.stringContaining("maker address"),
       }),
+    );
+  });
+
+  it("onWorkerFailed не логирует промежуточный ретрай", () => {
+    const ndjson = stubNdjsonLog();
+    const processor = new TradeEnrichmentProcessor(
+      {} as unknown as LiveTradeEnricherService,
+      {} as unknown as TradesService,
+      {} as unknown as TradeAlertService,
+      ndjson,
+    );
+    const err = new Error("Trade enrichment did not find maker address");
+    processor.onWorkerFailed(
+      jobStub(TRADE_ENRICHMENT_JOB_PROCESS, createJob(), {
+        attemptsMade: 1,
+        opts: { attempts: 3 },
+      }) as Job<TradeEnrichmentJob>,
+      err,
+      "prev",
+    );
+    expect(ndjson.logWorkerFailed).not.toHaveBeenCalled();
+  });
+
+  it("onWorkerFailed логирует финальное падение воркера", () => {
+    const ndjson = stubNdjsonLog();
+    const processor = new TradeEnrichmentProcessor(
+      {} as unknown as LiveTradeEnricherService,
+      {} as unknown as TradesService,
+      {} as unknown as TradeAlertService,
+      ndjson,
+    );
+    const err = new Error("unexpected");
+    const job = jobStub(TRADE_ENRICHMENT_JOB_PROCESS, createJob(), {
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    }) as Job<TradeEnrichmentJob>;
+    processor.onWorkerFailed(job, err, "prev");
+    expect(ndjson.logWorkerFailed).toHaveBeenCalledWith(
+      TRADE_ENRICHMENT_QUEUE_NAME,
+      job,
+      err,
+      "prev",
     );
   });
 });
