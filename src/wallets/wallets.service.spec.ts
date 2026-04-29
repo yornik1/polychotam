@@ -23,9 +23,23 @@ describe("WalletsService", () => {
     } as Pick<Repository<Wallet>, "upsert" | "createQueryBuilder">;
 
     const find = vi.fn().mockResolvedValue([]);
+    const tradeGetRawMany = vi.fn().mockResolvedValue([]);
+    const tradeQueryBuilder = {
+      select: vi.fn().mockReturnThis(),
+      addSelect: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      andWhere: vi.fn().mockReturnThis(),
+      groupBy: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      getRawMany: tradeGetRawMany,
+    };
+    const tradeCreateQueryBuilder = vi.fn().mockReturnValue(tradeQueryBuilder);
     const tradeRepository = {
       find,
-    } as Pick<Repository<Trade>, "find">;
+      createQueryBuilder: tradeCreateQueryBuilder,
+    } as Pick<Repository<Trade>, "find" | "createQueryBuilder">;
 
     const service = new WalletsService(
       walletRepository as Repository<Wallet>,
@@ -38,6 +52,9 @@ describe("WalletsService", () => {
       createQueryBuilder,
       queryBuilder,
       getMany,
+      tradeCreateQueryBuilder,
+      tradeQueryBuilder,
+      tradeGetRawMany,
     };
   }
 
@@ -186,6 +203,36 @@ describe("WalletsService", () => {
 
     expect(getMany).toHaveBeenCalledTimes(1);
     nowSpy.mockRestore();
+  });
+
+  it("getTopWalletsByVolumeOnTopMarkets суммирует объём в USDC (size × price) и фильтрует по нему", async () => {
+    const { service, tradeCreateQueryBuilder, tradeQueryBuilder, tradeGetRawMany } = createService();
+    tradeGetRawMany.mockResolvedValue([
+      { address: "  0xabc  ", total_volume: "44000.5", trade_count: "3" },
+    ]);
+
+    const result = await service.getTopWalletsByVolumeOnTopMarkets(10);
+
+    expect(tradeCreateQueryBuilder).toHaveBeenCalledWith("trade");
+    expect(tradeQueryBuilder.select).toHaveBeenCalledWith("trade.maker_address", "address");
+    expect(tradeQueryBuilder.addSelect).toHaveBeenCalledWith(
+      "SUM(CAST(trade.size AS DECIMAL) * CAST(trade.price AS DECIMAL))",
+      "total_volume",
+    );
+    expect(tradeQueryBuilder.addSelect).toHaveBeenCalledWith("COUNT(*)", "trade_count");
+    expect(tradeQueryBuilder.innerJoin).toHaveBeenCalledWith("trade.market", "market");
+    expect(tradeQueryBuilder.where).toHaveBeenCalledWith("market.volume24hr > :minVolume", {
+      minVolume: 1000000,
+    });
+    expect(tradeQueryBuilder.andWhere).toHaveBeenCalledWith(
+      "CAST(trade.size AS DECIMAL) * CAST(trade.price AS DECIMAL) > :minTradeSize",
+      { minTradeSize: 10000 },
+    );
+    expect(tradeQueryBuilder.groupBy).toHaveBeenCalledWith("trade.maker_address");
+    expect(tradeQueryBuilder.orderBy).toHaveBeenCalledWith("total_volume", "DESC");
+    expect(tradeQueryBuilder.limit).toHaveBeenCalledWith(10);
+
+    expect(result).toEqual([{ address: "0xabc", totalVolume: "44000.5", tradeCount: 3 }]);
   });
 
   it("isTopWallet возвращает false для адреса вне кешированного top-10", async () => {

@@ -8,6 +8,6 @@ alwaysApply: true
 # MVP — Polychotam
 
 Notion-борда: https://www.notion.so/9bdc07518c0546eaa9aa84e6f9bd0483
-Задача: https://www.notion.so/33b7b5e2ccce81c48931c1701ef3bbc8 (Telegram бот)
+Задача: https://www.notion.so/3517b5e2ccce8158b832c0e2438686b3 (Fix trade.size в USD)
 
 Типы: `src/types/contracts.ts`. Подход: TDD.
