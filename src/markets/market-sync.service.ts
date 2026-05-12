@@ -39,7 +39,7 @@ export class MarketSyncService {
     @Inject(PolymarketHttpClient)
     private readonly polymarketHttpClient: Pick<
       PolymarketHttpClient,
-      "fetchMarkets" | "fetchSimplifiedMarkets"
+      "fetchMarkets" | "fetchSimplifiedMarkets" | "fetchClosedMarketsGammaKeysetPage"
     >,
     @InjectRepository(Market)
     private readonly marketRepository: Repository<Market>,
@@ -136,6 +136,60 @@ export class MarketSyncService {
       }
     }
     return newlyResolved;
+  }
+
+  /**
+   * Бэкфилл закрытых маркетов из Gamma `/markets/keyset` (ключевая пагинация).
+   */
+  async backfillClosedMarketsFromGammaKeyset(opts: {
+    maxPages: number;
+    pageSize: number;
+  }): Promise<{ pagesProcessed: number; marketsUpserted: number; newlyResolved: string[] }> {
+    const allNewlyResolved: string[] = [];
+    let cursor: string | undefined;
+    let pagesProcessed = 0;
+    let marketsUpserted = 0;
+    const maxPages =
+      Number.isFinite(opts.maxPages) && opts.maxPages > 0 ? Math.floor(opts.maxPages) : 0;
+    const pageSizeRaw =
+      Number.isFinite(opts.pageSize) && opts.pageSize > 0
+        ? Math.floor(opts.pageSize)
+        : 500;
+
+    for (let page = 0; page < maxPages; page += 1) {
+      let pageResult: { markets: readonly GammaMarketRaw[]; next_cursor: string | null };
+      try {
+        pageResult = await this.polymarketHttpClient.fetchClosedMarketsGammaKeysetPage({
+          limit: pageSizeRaw,
+          afterCursor: cursor,
+        });
+      } catch {
+        break;
+      }
+
+      const gammaMarkets = pageResult.markets;
+      if (!Array.isArray(gammaMarkets) || gammaMarkets.length === 0) {
+        break;
+      }
+
+      const newlyResolved = await this.upsertGammaMarketsAndCollectNewlyResolved(gammaMarkets);
+      allNewlyResolved.push(...newlyResolved);
+      marketsUpserted += gammaMarkets.length;
+      pagesProcessed += 1;
+
+      const nextCursor = pageResult.next_cursor;
+      if (nextCursor === null || nextCursor.length === 0) {
+        break;
+      }
+      if (gammaMarkets.length < Math.min(pageSizeRaw, 1000)) {
+        break;
+      }
+      cursor = nextCursor;
+
+      await new Promise((r) => setTimeout(r, 300));
+    }
+
+    return { pagesProcessed, marketsUpserted, newlyResolved: allNewlyResolved };
   }
 
   private mapGammaMarketToSnapshotRow(

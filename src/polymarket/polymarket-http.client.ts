@@ -109,6 +109,51 @@ export class PolymarketHttpClient {
     return this.validateGammaMarketsArray(payload);
   }
 
+  /**
+   * Закрытые маркеты из Gamma keyset-пагинации (`/markets/keyset`) для бэкфилла resolved.
+   */
+  async fetchClosedMarketsGammaKeysetPage(opts: {
+    limit: number;
+    afterCursor?: string;
+  }): Promise<{ markets: GammaMarketRaw[]; next_cursor: string | null }> {
+    const base = this.resolveGammaBaseUrl();
+    const rawLimit = Number.isFinite(opts.limit) && opts.limit > 0 ? Math.floor(opts.limit) : 500;
+    const safeLimit = Math.min(Math.max(1, rawLimit), 1000);
+    const params = new URLSearchParams({
+      closed: "true",
+      limit: String(safeLimit),
+    });
+    const cursor = opts.afterCursor?.trim();
+    if (cursor !== undefined && cursor.length > 0) {
+      params.set("after_cursor", cursor);
+    }
+    const url = `${base}/markets/keyset?${params}`;
+    const response = await this.withTimeout(fetch(url));
+    if (!response.ok) {
+      throw new PolymarketUpstreamStatusError(response.status);
+    }
+    const payload = (await response.json()) as {
+      markets?: unknown;
+      next_cursor?: unknown;
+    };
+    const marketsRaw = payload.markets;
+    if (marketsRaw === undefined) {
+      throw new PolymarketInvalidPayloadError("Gamma keyset response missing markets");
+    }
+    if (!Array.isArray(marketsRaw)) {
+      throw new PolymarketInvalidPayloadError("Gamma keyset markets is not an array");
+    }
+    const hasInvalid = marketsRaw.some((item: unknown) => item === null || typeof item !== "object");
+    if (hasInvalid) {
+      throw new PolymarketInvalidPayloadError("Gamma keyset markets contains invalid item");
+    }
+    const next =
+      typeof payload.next_cursor === "string" && payload.next_cursor.trim().length > 0
+        ? payload.next_cursor.trim()
+        : null;
+    return { markets: marketsRaw as GammaMarketRaw[], next_cursor: next };
+  }
+
   private resolveHost(): string {
     const host = this.configService.get<string>("POLYMARKET_REST_URL");
     if (typeof host !== "string" || host.trim() === "") {
