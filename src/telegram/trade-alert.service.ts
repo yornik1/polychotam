@@ -1,12 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { MarketsService } from "../markets/markets.service.js";
-import { WalletsService } from "../wallets/wallets.service.js";
+import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { TelegramService } from "./telegram.service.js";
 
 const DEFAULT_ALERT_THRESHOLD_AMOUNT = 1000;
 const DEFAULT_ALERT_DEDUP_TTL_MS = 180_000;
-const TOP_WHALES_CACHE_TTL_MS = 300_000; // 5 минут
 
 interface TradeAlertInput {
   address: string;
@@ -20,12 +19,11 @@ interface TradeAlertInput {
 @Injectable()
 export class TradeAlertService {
   private readonly recentAlertAt = new Map<string, number>();
-  private topWhalesCache: { expiresAt: number; addresses: Set<string> } | null = null;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly marketsService: MarketsService,
-    private readonly walletsService: WalletsService,
+    private readonly smartWalletsService: SmartWalletsService,
     private readonly telegramService: TelegramService,
   ) {}
 
@@ -52,13 +50,9 @@ export class TradeAlertService {
       return false;
     }
 
-    const isTopWhale = await this.isTopWhale(address);
-    if (!isTopWhale) {
-      return false;
-    }
-
-    const isTopMarket = await this.marketsService.isTopMarket(input.market, 20);
-    if (!isTopMarket) {
+    // Главное изменение: проверяем smart wallet whitelist вместо volume-based top whales
+    const isSmartWhale = await this.smartWalletsService.isSmartWhale(address);
+    if (!isSmartWhale) {
       return false;
     }
 
@@ -70,24 +64,6 @@ export class TradeAlertService {
       this.recentAlertAt.set(dedupKey, Date.now());
     }
     return sent;
-  }
-
-  private async isTopWhale(address: string): Promise<boolean> {
-    const normalizedAddress = address.trim();
-    if (normalizedAddress.length === 0) {
-      return false;
-    }
-
-    const now = Date.now();
-    if (this.topWhalesCache === null || this.topWhalesCache.expiresAt <= now) {
-      const whales = await this.walletsService.getTopWalletsByVolumeOnTopMarkets(10);
-      this.topWhalesCache = {
-        expiresAt: now + TOP_WHALES_CACHE_TTL_MS,
-        addresses: new Set(whales.map((w) => w.address.toLowerCase())),
-      };
-    }
-
-    return this.topWhalesCache.addresses.has(normalizedAddress.toLowerCase());
   }
 
   private resolveDedupTtlMs(): number {
@@ -152,11 +128,11 @@ export class TradeAlertService {
 
   private formatAlertMessage(input: TradeAlertInput, marketLabel: string, amount: number): string {
     return [
-      "🚨 Кит сделал ставку!",
-      `Кошелёк: ${input.address}`,
-      `Маркет: ${marketLabel}`,
-      `Сторона: ${input.side}`,
-      `Сумма: $${amount}`,
+      "\u{1F6A8} Smart Whale Trade!",
+      `Wallet: ${input.address}`,
+      `Market: ${marketLabel}`,
+      `Side: ${input.side}`,
+      `Size: $${Math.round(amount).toLocaleString("en-US")}`,
     ].join("\n");
   }
 }

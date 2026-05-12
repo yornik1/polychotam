@@ -1,5 +1,6 @@
 import { Market } from "../markets/market.entity.js";
 import { Wallet } from "../wallets/wallet.entity.js";
+import type { SmartWalletStats, SmartWalletDetail } from "../wallets/smart-wallets.service.js";
 
 interface MarketTokenLike {
   outcome?: unknown;
@@ -48,13 +49,22 @@ function formatWalletAddress(address: string): string {
 }
 
 export function formatStartMessage(): string {
-  return "Polychotam запущен. Команды: /start, /top, /market <slug>.";
+  return [
+    "Polychotam Smart Whale Tracker",
+    "",
+    "Команды:",
+    "/whales — smart whale whitelist",
+    "/whale <addr> — детали кошелька",
+    "/market <slug> — инфо по маркету",
+    "/top — топ по объёму (все киты)",
+    "/stats — статистика системы",
+  ].join("\n");
 }
 
 export function formatMarketMessage(market: Market): string {
   const tokens = asMarketTokens(market.tokens);
   const odds = formatOdds(tokens);
-  const lines = [`📊 ${market.question}`];
+  const lines = [`\u{1F4CA} ${market.question}`];
 
   if (odds !== null) {
     lines.push(`Odds: ${odds}`);
@@ -70,7 +80,7 @@ export function formatMarketMessage(market: Market): string {
 }
 
 export function formatTopWalletsMessage(wallets: Wallet[]): string {
-  const lines = ["🏆 Топ кошельков:", ""];
+  const lines = ["\u{1F3C6} \u0422\u043E\u043F \u043A\u043E\u0448\u0435\u043B\u044C\u043A\u043E\u0432:", ""];
 
   for (const [index, wallet] of wallets.entries()) {
     const winRate = Math.round(Number(wallet.win_rate) * 100);
@@ -85,13 +95,13 @@ export function formatTopWalletsMessage(wallets: Wallet[]): string {
 export function formatTopWhalesMessage(
   whales: Array<{ address: string; totalVolume: string; tradeCount: number }>,
 ): string {
-  const lines = ["🐋 Топ-10 китов по объёму торговли на топовых маркетах:", ""];
+  const lines = ["\u{1F40B} \u0422\u043E\u043F-10 \u043A\u0438\u0442\u043E\u0432 \u043F\u043E \u043E\u0431\u044A\u0451\u043C\u0443:", ""];
 
   for (const [index, whale] of whales.entries()) {
     const volume = formatCurrency(Number(whale.totalVolume));
     const polymarketUrl = `https://polymarket.com/profile/${whale.address}`;
     lines.push(
-      `${index + 1}. [${formatWalletAddress(whale.address)}](${polymarketUrl}) — $${volume} (${whale.tradeCount} сделок)`,
+      `${index + 1}. [${formatWalletAddress(whale.address)}](${polymarketUrl}) — $${volume} (${whale.tradeCount} trades)`,
     );
   }
 
@@ -100,4 +110,78 @@ export function formatTopWhalesMessage(
   }
 
   return lines.join("\n");
+}
+
+export function formatSmartWhalesListMessage(wallets: SmartWalletStats[]): string {
+  const lines = ["\u{1F9E0} Smart Whale Whitelist:", ""];
+
+  for (const [index, w] of wallets.entries()) {
+    const hr = w.hit_rate ? `${(Number(w.hit_rate) * 100).toFixed(0)}%` : "?";
+    const pnl = w.sum_pnl ? `$${formatCurrency(Number(w.sum_pnl))}` : "?";
+    const roi = w.roi_pct ? `${Number(w.roi_pct).toFixed(1)}%` : "?";
+    const addr = formatWalletAddress(w.address);
+    const url = `https://polymarket.com/profile/${w.address}`;
+
+    lines.push(
+      `${index + 1}. [${addr}](${url})`,
+    );
+    lines.push(
+      `   HR: ${hr} | PnL: ${pnl} | ROI: ${roi} | ${w.whale_trade_count} trades`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+export function formatSmartWhaleDetailMessage(detail: SmartWalletDetail): string {
+  const addr = detail.address;
+  const url = `https://polymarket.com/profile/${addr}`;
+  const hr = detail.hit_rate ? `${(Number(detail.hit_rate) * 100).toFixed(1)}%` : "n/a";
+  const pnl = detail.sum_pnl ? `$${formatCurrency(Number(detail.sum_pnl))}` : "n/a";
+  const roi = detail.roi_pct ? `${Number(detail.roi_pct).toFixed(2)}%` : "n/a";
+
+  const lines = [
+    `\u{1F9E0} [${formatWalletAddress(addr)}](${url})`,
+    "",
+    `Hit Rate: ${hr}`,
+    `Sum PnL: ${pnl}`,
+    `ROI: ${roi}`,
+    `Whale trades: ${detail.whale_trade_count}`,
+    `Source: ${detail.source}`,
+    detail.notes ? `Notes: ${detail.notes}` : "",
+    "",
+    "Last 10 trades:",
+  ];
+
+  for (const t of detail.recentTrades) {
+    const pnlStr = t.pnl !== null ? ` (${t.pnl > 0 ? "+" : ""}$${Math.round(t.pnl)})` : "";
+    const question = t.market_question.length > 40
+      ? `${t.market_question.slice(0, 37)}...`
+      : t.market_question;
+    lines.push(`  ${t.side} $${formatCurrency(Number(t.size) * Number(t.price))}${pnlStr} — ${question}`);
+  }
+
+  if (detail.recentTrades.length === 0) {
+    lines.push("  (нет сделок в БД)");
+  }
+
+  return lines.filter((l) => l !== "").join("\n");
+}
+
+export function formatStatsMessage(stats: {
+  tradesTotal: number;
+  trades24h: number;
+  marketsTotal: number;
+  marketsResolved: number;
+  smartWhalesActive: number;
+}): string {
+  return [
+    "\u{1F4C8} System Stats",
+    "",
+    `Trades total: ${formatCurrency(stats.tradesTotal)}`,
+    `Trades 24h: ${formatCurrency(stats.trades24h)}`,
+    `Markets tracked: ${formatCurrency(stats.marketsTotal)}`,
+    `Markets resolved: ${formatCurrency(stats.marketsResolved)}`,
+    `Smart whales active: ${stats.smartWhalesActive}`,
+  ].join("\n");
 }
