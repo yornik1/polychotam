@@ -1,9 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { SmartWallet } from "./smart-wallet.entity.js";
 import { Trade } from "../trades/trade.entity.js";
-import { Market } from "../markets/market.entity.js";
 
 export interface SmartWalletStats {
   address: string;
@@ -29,7 +28,6 @@ export interface SmartWalletDetail extends SmartWalletStats {
 
 @Injectable()
 export class SmartWalletsService {
-  private readonly logger = new Logger(SmartWalletsService.name);
   private cache: { expiresAt: number; addresses: Set<string> } | null = null;
   private static readonly CACHE_TTL_MS = 60_000;
 
@@ -38,8 +36,6 @@ export class SmartWalletsService {
     private readonly smartWalletRepository: Repository<SmartWallet>,
     @InjectRepository(Trade)
     private readonly tradeRepository: Repository<Trade>,
-    @InjectRepository(Market)
-    private readonly marketRepository: Repository<Market>,
   ) {}
 
   /** Проверка: является ли адрес smart whale (для алертов). */
