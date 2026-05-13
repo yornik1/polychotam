@@ -28,6 +28,6 @@ describe("buildTopMarketsWsSelectionFromGamma", () => {
     );
     expect(selection.rows[0]!.conditionId).toBe("0xhigh");
     expect(selection.rows[1]!.conditionId).toBe("0xlow");
-    expect(selection.assetIds.sort()).toEqual(["t1", "t2", "t3"].sort());
+    expect([...selection.assetIds].sort()).toEqual([...["t1", "t2", "t3"]].sort());
   });
 });

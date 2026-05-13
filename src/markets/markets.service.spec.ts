@@ -25,7 +25,7 @@ describe("MarketsService", () => {
     const marketRepository = {
       findOne,
       createQueryBuilder,
-    } as Pick<Repository<Market>, "findOne" | "createQueryBuilder">;
+    } as unknown as Pick<Repository<Market>, "findOne" | "createQueryBuilder">;
     const service = new MarketsService(
       polymarketHttpClient,
       marketRepository as Repository<Market>,

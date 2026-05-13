@@ -17,6 +17,7 @@ import { getBotToken } from "nestjs-telegraf";
 import { DataSource, EntityManager, Repository } from "typeorm";
 import { AppModule } from "../src/app.module.js";
 import { Market } from "../src/markets/market.entity.js";
+import { SmartWallet } from "../src/wallets/smart-wallet.entity.js";
 import { PolymarketHttpClient } from "../src/polymarket/polymarket-http.client.js";
 import { PolymarketWsClient } from "../src/polymarket/polymarket-ws.client.js";
 import { Trade } from "../src/trades/trade.entity.js";
@@ -106,6 +107,8 @@ describe("GET /markets (e2e)", () => {
       .useValue(emptyRepo as Repository<Trade>)
       .overrideProvider(getRepositoryToken(Wallet))
       .useValue(emptyRepo as Repository<Wallet>)
+      .overrideProvider(getRepositoryToken(SmartWallet))
+      .useValue(emptyRepo as Repository<SmartWallet>)
       .overrideProvider(getSharedConfigToken())
       .useValue({ connection: { host: "localhost", port: 6379 } })
       .overrideProvider(getQueueToken("trades"))

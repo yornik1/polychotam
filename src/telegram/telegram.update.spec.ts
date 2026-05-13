@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { Repository } from "typeorm";
 import { Market } from "../markets/market.entity.js";
+import { Trade } from "../trades/trade.entity.js";
 import { MarketsService } from "../markets/markets.service.js";
-import { Wallet } from "../wallets/wallet.entity.js";
+import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { WalletsService } from "../wallets/wallets.service.js";
 import { TelegramUpdate } from "./telegram.update.js";
 
@@ -20,6 +22,9 @@ describe("TelegramUpdate", () => {
     const update = new TelegramUpdate(
       { findBySlug } as unknown as MarketsService,
       { getTopWalletsByVolumeOnTopMarkets } as unknown as WalletsService,
+      {} as unknown as SmartWalletsService,
+      {} as unknown as Repository<Trade>,
+      {} as unknown as Repository<Market>,
     );
 
     return { update, findBySlug, getTopWalletsByVolumeOnTopMarkets };
@@ -96,6 +101,6 @@ describe("TelegramUpdate", () => {
     expect(reply).toHaveBeenCalledWith(expect.stringContaining("0xABCD"));
     expect(reply).toHaveBeenCalledWith(expect.stringContaining("китов"));
     expect(reply).toHaveBeenCalledWith(expect.stringContaining("5,000,000"));
-    expect(reply).toHaveBeenCalledWith(expect.stringContaining("150 сделок"));
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("150 trades"));
   });
 });
