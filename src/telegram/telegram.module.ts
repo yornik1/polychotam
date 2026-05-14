@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { TelegrafModule } from "nestjs-telegraf";
 import { MarketsModule } from "../markets/markets.module.js";
+import { PolymarketModule } from "../polymarket/polymarket.module.js";
 import { Trade } from "../trades/trade.entity.js";
 import { Market } from "../markets/market.entity.js";
 import { WalletsModule } from "../wallets/wallets.module.js";
@@ -16,6 +17,7 @@ import { TelegramService } from "./telegram.service.js";
     ConfigModule,
     forwardRef(() => MarketsModule),
     WalletsModule,
+    forwardRef(() => PolymarketModule),
     TypeOrmModule.forFeature([Trade, Market]),
     TelegrafModule.forRootAsync({
       inject: [ConfigService],

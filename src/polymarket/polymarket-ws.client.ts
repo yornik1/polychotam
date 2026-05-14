@@ -10,6 +10,7 @@ import WebSocket from "ws";
 import type { TradeEvent } from "./dto/trade-event.js";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
 import { PolymarketMarketResolutionService } from "./polymarket-market-resolution.service.js";
+import { PolymarketWsStatusService } from "./polymarket-ws-status.service.js";
 import { buildTopMarketsWsSelectionFromGamma } from "./polymarket-gamma-top-markets.js";
 import { buildTopMarketsWsSelection } from "./polymarket-top-markets.js";
 import { tryParseMarketResolvedWsPayload } from "./polymarket-ws-resolved.parser.js";
@@ -38,6 +39,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly polymarketHttpClient: PolymarketHttpClient,
     private readonly marketResolutionService: PolymarketMarketResolutionService,
+    private readonly wsStatusService: PolymarketWsStatusService,
     @InjectQueue(TRADES_QUEUE_NAME)
     private readonly tradesQueue: Queue<TradeEvent>,
   ) {}
@@ -240,6 +242,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
 
     socket.on("open", () => {
       this.logger.log("WS подключился к Polymarket CLOB");
+      this.wsStatusService.setConnected(true, assetIds.length);
       // Подписка market channel: поле assets_ids — clob token_id (дока Polymarket).
       const payload = {
         assets_ids: [...assetIds],
@@ -264,6 +267,8 @@ export class PolymarketWsClient implements OnModuleDestroy {
 
     socket.on("close", (code, reason) => {
       this.stopPing();
+      this.wsStatusService.setConnected(false);
+      this.wsStatusService.recordReconnect();
       const reasonText = reason.length > 0 ? reason.toString() : "";
       this.logger.warn(
         `WS закрыт (code=${code}${reasonText ? `, reason=${reasonText}` : ""}). Переподключение через ${RECONNECT_MS} мс`,

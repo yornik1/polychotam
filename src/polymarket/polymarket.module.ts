@@ -12,6 +12,7 @@ import { PolymarketGateway } from "./polymarket.gateway.js";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
 import { PolymarketService } from "./polymarket.service.js";
 import { PolymarketWsClient } from "./polymarket-ws.client.js";
+import { PolymarketWsStatusService } from "./polymarket-ws-status.service.js";
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { PolymarketWsClient } from "./polymarket-ws.client.js";
     MarketSyncService,
     BackfillService,
     PolymarketWsClient,
+    PolymarketWsStatusService,
     PolymarketMarketResolutionService,
     GammaMarketCronService,
   ],
@@ -35,6 +37,7 @@ import { PolymarketWsClient } from "./polymarket-ws.client.js";
     MarketSyncService,
     BackfillService,
     PolymarketWsClient,
+    PolymarketWsStatusService,
     PolymarketEnrichmentModule,
     PolymarketMarketResolutionService,
   ],
