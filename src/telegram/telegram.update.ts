@@ -7,7 +7,10 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Trade } from "../trades/trade.entity.js";
 import { Market } from "../markets/market.entity.js";
+import { AlertSettingsService } from "../settings/alert-settings.service.js";
+import { WsUptimeService } from "../polymarket/ws-uptime.service.js";
 import {
+  formatAlertsStatusMessage,
   formatMarketMessage,
   formatSmartWhaleDetailMessage,
   formatSmartWhalesListMessage,
@@ -32,6 +35,8 @@ export class TelegramUpdate {
     private readonly tradeRepository: Repository<Trade>,
     @InjectRepository(Market)
     private readonly marketRepository: Repository<Market>,
+    private readonly alertSettingsService: AlertSettingsService,
+    private readonly wsUptimeService: WsUptimeService,
   ) {}
 
   @Start()
@@ -89,21 +94,46 @@ export class TelegramUpdate {
     await ctx.reply(formatSmartWhaleDetailMessage(detail), { parse_mode: "Markdown" });
   }
 
+  @Command("alerts")
+  async handleAlerts(@Ctx() ctx: ReplyContext): Promise<void> {
+    const raw = ctx.payload?.trim() ?? "";
+    const arg = raw.toLowerCase();
+
+    if (arg === "off") {
+      await this.alertSettingsService.setAlertsEnabled(false);
+      await ctx.reply(formatAlertsStatusMessage(false));
+      return;
+    }
+
+    if (arg === "on") {
+      await this.alertSettingsService.setAlertsEnabled(true);
+      await ctx.reply(formatAlertsStatusMessage(true));
+      return;
+    }
+
+    const enabled = await this.alertSettingsService.isAlertsEnabled();
+    await ctx.reply(formatAlertsStatusMessage(enabled));
+  }
+
   @Command("stats")
   async handleStats(@Ctx() ctx: ReplyContext): Promise<void> {
-    const [tradesCount, marketsCount, resolvedCount, smartCount] = await Promise.all([
-      this.tradeRepository.count(),
-      this.marketRepository.count(),
-      this.marketRepository.count({
-        where: { closed: true },
-      }),
-      this.smartWalletsService.getActiveWhitelist().then((l) => l.length),
-    ]);
+    const [tradesCount, marketsCount, resolvedCount, smartCount, wsUptimeRatio24h] =
+      await Promise.all([
+        this.tradeRepository.count(),
+        this.marketRepository.count(),
+        this.marketRepository.count({
+          where: { closed: true },
+        }),
+        this.smartWalletsService.getActiveWhitelist().then((l) => l.length),
+        this.wsUptimeService.getUptimeRatio24h(),
+      ]);
 
     const recentTrades = await this.tradeRepository
       .createQueryBuilder("t")
       .where("t.match_time >= :since", { since: new Date(Date.now() - 24 * 60 * 60 * 1000) })
       .getCount();
+
+    const wsConnectedForMs = this.wsUptimeService.getElapsedMs();
 
     await ctx.reply(
       formatStatsMessage({
@@ -112,6 +142,8 @@ export class TelegramUpdate {
         marketsTotal: marketsCount,
         marketsResolved: resolvedCount,
         smartWhalesActive: smartCount,
+        wsConnectedForMs,
+        wsUptimeRatio24h,
       }),
     );
   }

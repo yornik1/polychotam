@@ -14,6 +14,7 @@ import { CommonModule } from "./common/common.module.js";
 import { MarketsModule } from "./markets/markets.module.js";
 import { PolymarketModule } from "./polymarket/polymarket.module.js";
 import { QueueModule } from "./queue/queue.module.js";
+import { SettingsModule } from "./settings/settings.module.js";
 import { TelegramModule } from "./telegram/telegram.module.js";
 import { TradesModule } from "./trades/trades.module.js";
 import { WalletsModule } from "./wallets/wallets.module.js";
@@ -44,6 +45,7 @@ import { WalletsModule } from "./wallets/wallets.module.js";
     WalletsModule,
     QueueModule,
     PolymarketModule,
+    SettingsModule,
     TelegramModule,
     CommonModule,
   ],

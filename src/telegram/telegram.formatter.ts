@@ -58,7 +58,14 @@ export function formatStartMessage(): string {
     "/market <slug> — инфо по маркету",
     "/top — топ по объёму (все киты)",
     "/stats — статистика системы",
+    "/alerts [on|off] — глобально вкл/выкл TG-алерты",
   ].join("\n");
+}
+
+export function formatAlertsStatusMessage(enabled: boolean): string {
+  return enabled
+    ? "Алерты smart whale включены."
+    : "Алерты smart whale выключены.";
 }
 
 export function formatMarketMessage(market: Market): string {
@@ -110,6 +117,47 @@ export function formatTopWhalesMessage(
   }
 
   return lines.join("\n");
+}
+
+/** Поля сделки для текста TG-алерта smart whale. */
+export interface SmartWhaleAlertInput {
+  address: string;
+  side: string;
+}
+
+export function formatSmartWhaleAlertMessage(
+  input: SmartWhaleAlertInput,
+  stats: SmartWalletStats | null,
+  marketLabel: string,
+  amount: number,
+): string {
+  const hr =
+    stats !== null &&
+    stats.hit_rate !== null &&
+    stats.hit_rate !== undefined &&
+    String(stats.hit_rate).trim() !== ""
+      ? `${(Number(stats.hit_rate) * 100).toFixed(1)}%`
+      : "n/a";
+  const roi =
+    stats !== null &&
+    stats.roi_pct !== null &&
+    stats.roi_pct !== undefined &&
+    String(stats.roi_pct).trim() !== ""
+      ? `${Number(stats.roi_pct).toFixed(2)}%`
+      : "n/a";
+  const whaleTrades =
+    stats !== null ? String(stats.whale_trade_count) : "n/a";
+
+  return [
+    "\u{1F6A8} Smart Whale Trade!",
+    `Wallet: ${input.address}`,
+    `Market: ${marketLabel}`,
+    `Side: ${input.side}`,
+    `Size: $${Math.round(amount).toLocaleString("en-US")}`,
+    `HR: ${hr}`,
+    `ROI: ${roi}`,
+    `Whale trades: ${whaleTrades}`,
+  ].join("\n");
 }
 
 export function formatSmartWhalesListMessage(wallets: SmartWalletStats[]): string {
@@ -168,12 +216,35 @@ export function formatSmartWhaleDetailMessage(detail: SmartWalletDetail): string
   return lines.filter((l) => l !== "").join("\n");
 }
 
+function formatDurationMs(ms: number): string {
+  if (ms <= 0) {
+    return "0m";
+  }
+  const totalMinutes = Math.floor(ms / 60_000);
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const mins = totalMinutes % 60;
+  const parts: string[] = [];
+  if (days > 0) {
+    parts.push(`${days}d`);
+  }
+  if (hours > 0) {
+    parts.push(`${hours}h`);
+  }
+  if (mins > 0 || parts.length === 0) {
+    parts.push(`${mins}m`);
+  }
+  return parts.join(" ");
+}
+
 export function formatStatsMessage(stats: {
   tradesTotal: number;
   trades24h: number;
   marketsTotal: number;
   marketsResolved: number;
   smartWhalesActive: number;
+  wsConnectedForMs: number;
+  wsUptimeRatio24h: number;
 }): string {
   return [
     "\u{1F4C8} System Stats",
@@ -183,5 +254,7 @@ export function formatStatsMessage(stats: {
     `Markets tracked: ${formatCurrency(stats.marketsTotal)}`,
     `Markets resolved: ${formatCurrency(stats.marketsResolved)}`,
     `Smart whales active: ${stats.smartWhalesActive}`,
+    `WS connected for: ${formatDurationMs(stats.wsConnectedForMs)}`,
+    `WS uptime (24h): ${(stats.wsUptimeRatio24h * 100).toFixed(1)}%`,
   ].join("\n");
 }

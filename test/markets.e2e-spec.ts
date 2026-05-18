@@ -15,6 +15,8 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getBotToken } from "nestjs-telegraf";
 import { DataSource, EntityManager, Repository } from "typeorm";
+import { AppSetting } from "../src/settings/app-setting.entity.js";
+import { WsConnectionEvent } from "../src/polymarket/ws-connection-event.entity.js";
 import { AppModule } from "../src/app.module.js";
 import { Market } from "../src/markets/market.entity.js";
 import { SmartWallet } from "../src/wallets/smart-wallet.entity.js";
@@ -109,6 +111,17 @@ describe("GET /markets (e2e)", () => {
       .useValue(emptyRepo as Repository<Wallet>)
       .overrideProvider(getRepositoryToken(SmartWallet))
       .useValue(emptyRepo as Repository<SmartWallet>)
+      .overrideProvider(getRepositoryToken(AppSetting))
+      .useValue({
+        findOne: vi.fn().mockResolvedValue({ key: "alerts_enabled", value: "true" }),
+        upsert: vi.fn().mockResolvedValue(undefined),
+      })
+      .overrideProvider(getRepositoryToken(WsConnectionEvent))
+      .useValue({
+        save: vi.fn().mockResolvedValue(undefined),
+        find: vi.fn().mockResolvedValue([]),
+        findOne: vi.fn().mockResolvedValue(null),
+      })
       .overrideProvider(getSharedConfigToken())
       .useValue({ connection: { host: "localhost", port: 6379 } })
       .overrideProvider(getQueueToken("trades"))

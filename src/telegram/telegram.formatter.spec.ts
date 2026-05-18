@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Market } from "../markets/market.entity.js";
 import { Wallet } from "../wallets/wallet.entity.js";
+import type { SmartWalletStats } from "../wallets/smart-wallets.service.js";
 import {
   formatMarketMessage,
+  formatSmartWhaleAlertMessage,
   formatStartMessage,
+  formatStatsMessage,
   formatTopWalletsMessage,
 } from "./telegram.formatter.js";
 
@@ -58,5 +61,47 @@ describe("telegram formatter", () => {
     expect(message).toContain("78%");
     expect(message).toContain("$12,400");
     expect(message).toContain("0xABCD");
+  });
+
+  it("formatSmartWhaleAlertMessage при null HR/ROI показывает n/a", () => {
+    const stats: SmartWalletStats = {
+      address: "0xabc",
+      active: true,
+      hit_rate: null,
+      sum_pnl: null,
+      roi_pct: null,
+      whale_trade_count: 7,
+      notes: "",
+      source: "manual",
+    };
+
+    const message = formatSmartWhaleAlertMessage(
+      { address: "0xabc", side: "BUY" },
+      stats,
+      "Some market",
+      1500,
+    );
+
+    expect(message).toMatch(/HR.*n\/a/i);
+    expect(message).toMatch(/ROI.*n\/a/i);
+    expect(message).toContain("7");
+  });
+
+  it("formatStatsMessage включает WS connected for и uptime 24h", () => {
+    const message = formatStatsMessage({
+      tradesTotal: 100,
+      trades24h: 10,
+      marketsTotal: 20,
+      marketsResolved: 5,
+      smartWhalesActive: 3,
+      wsConnectedForMs: (2 * 24 * 60 + 4 * 60 + 17) * 60 * 1000,
+      wsUptimeRatio24h: 0.997,
+    });
+
+    expect(message).toContain("WS connected for:");
+    expect(message).toContain("2d");
+    expect(message).toContain("4h");
+    expect(message).toContain("WS uptime (24h):");
+    expect(message).toContain("99.7%");
   });
 });

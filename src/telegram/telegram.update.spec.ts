@@ -5,6 +5,8 @@ import { Trade } from "../trades/trade.entity.js";
 import { MarketsService } from "../markets/markets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { WalletsService } from "../wallets/wallets.service.js";
+import type { AlertSettingsService } from "../settings/alert-settings.service.js";
+import type { WsUptimeService } from "../polymarket/ws-uptime.service.js";
 import { TelegramUpdate } from "./telegram.update.js";
 
 interface ReplyContext {
@@ -18,6 +20,12 @@ describe("TelegramUpdate", () => {
     const getTopWalletsByVolumeOnTopMarkets = vi.fn<
       () => Promise<Array<{ address: string; totalVolume: string; tradeCount: number }>>
     >();
+    const isAlertsEnabled = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
+    const setAlertsEnabled = vi.fn<(v: boolean) => Promise<void>>().mockResolvedValue(undefined);
+    const alertSettingsService = { isAlertsEnabled, setAlertsEnabled };
+    const getElapsedMs = vi.fn<() => number>().mockReturnValue(0);
+    const getUptimeRatio24h = vi.fn<() => Promise<number>>().mockResolvedValue(0.5);
+    const wsUptimeService = { getElapsedMs, getUptimeRatio24h };
 
     const update = new TelegramUpdate(
       { findBySlug } as unknown as MarketsService,
@@ -25,9 +33,11 @@ describe("TelegramUpdate", () => {
       {} as unknown as SmartWalletsService,
       {} as unknown as Repository<Trade>,
       {} as unknown as Repository<Market>,
+      alertSettingsService as unknown as AlertSettingsService,
+      wsUptimeService as unknown as WsUptimeService,
     );
 
-    return { update, findBySlug, getTopWalletsByVolumeOnTopMarkets };
+    return { update, findBySlug, getTopWalletsByVolumeOnTopMarkets, alertSettingsService, wsUptimeService };
   }
 
   it("отвечает на /start списком команд", async () => {
@@ -102,5 +112,36 @@ describe("TelegramUpdate", () => {
     expect(reply).toHaveBeenCalledWith(expect.stringContaining("китов"));
     expect(reply).toHaveBeenCalledWith(expect.stringContaining("5,000,000"));
     expect(reply).toHaveBeenCalledWith(expect.stringContaining("150 trades"));
+  });
+
+  it("/alerts on включает алерты и отвечает статусом", async () => {
+    const { update, alertSettingsService } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+
+    await update.handleAlerts({ payload: "on", reply } as ReplyContext);
+
+    expect(alertSettingsService.setAlertsEnabled).toHaveBeenCalledWith(true);
+    expect(reply).toHaveBeenCalledWith(expect.stringMatching(/вкл/i));
+  });
+
+  it("/alerts off выключает алерты", async () => {
+    const { update, alertSettingsService } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+
+    await update.handleAlerts({ payload: "off", reply } as ReplyContext);
+
+    expect(alertSettingsService.setAlertsEnabled).toHaveBeenCalledWith(false);
+    expect(reply).toHaveBeenCalledWith(expect.stringMatching(/выкл/i));
+  });
+
+  it("/alerts без аргумента показывает текущий статус", async () => {
+    const { update, alertSettingsService } = createUpdate();
+    alertSettingsService.isAlertsEnabled.mockResolvedValue(false);
+    const reply = vi.fn<(message: string) => void>();
+
+    await update.handleAlerts({ payload: "", reply } as ReplyContext);
+
+    expect(alertSettingsService.isAlertsEnabled).toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith(expect.stringMatching(/выкл/i));
   });
 });

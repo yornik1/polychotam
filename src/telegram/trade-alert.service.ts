@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { MarketsService } from "../markets/markets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
+import { AlertSettingsService } from "../settings/alert-settings.service.js";
+import { formatSmartWhaleAlertMessage } from "./telegram.formatter.js";
 import { TelegramService } from "./telegram.service.js";
 
 const DEFAULT_ALERT_THRESHOLD_AMOUNT = 1000;
@@ -24,6 +26,7 @@ export class TradeAlertService {
     private readonly configService: ConfigService,
     private readonly marketsService: MarketsService,
     private readonly smartWalletsService: SmartWalletsService,
+    private readonly alertSettingsService: AlertSettingsService,
     private readonly telegramService: TelegramService,
   ) {}
 
@@ -56,9 +59,19 @@ export class TradeAlertService {
       return false;
     }
 
+    if (!(await this.alertSettingsService.isAlertsEnabled())) {
+      return false;
+    }
+
+    const stats = await this.smartWalletsService.getStatsByAddress(address);
     const marketLabel = await this.resolveMarketLabel(input.market);
     const sent = await this.telegramService.sendAlert(
-      this.formatAlertMessage(input, marketLabel, amount),
+      formatSmartWhaleAlertMessage(
+        { address, side: input.side },
+        stats,
+        marketLabel,
+        amount,
+      ),
     );
     if (sent) {
       this.recentAlertAt.set(dedupKey, Date.now());
@@ -124,15 +137,5 @@ export class TradeAlertService {
     }
 
     return normalizedConditionId;
-  }
-
-  private formatAlertMessage(input: TradeAlertInput, marketLabel: string, amount: number): string {
-    return [
-      "\u{1F6A8} Smart Whale Trade!",
-      `Wallet: ${input.address}`,
-      `Market: ${marketLabel}`,
-      `Side: ${input.side}`,
-      `Size: $${Math.round(amount).toLocaleString("en-US")}`,
-    ].join("\n");
   }
 }

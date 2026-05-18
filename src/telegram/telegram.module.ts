@@ -9,6 +9,8 @@ import { WalletsModule } from "../wallets/wallets.module.js";
 import { TelegramController } from "./telegram.controller.js";
 import { TradeAlertService } from "./trade-alert.service.js";
 import { TelegramUpdate } from "./telegram.update.js";
+import { SettingsModule } from "../settings/settings.module.js";
+import { PolymarketModule } from "../polymarket/polymarket.module.js";
 import { TelegramService } from "./telegram.service.js";
 
 @Module({
@@ -16,6 +18,8 @@ import { TelegramService } from "./telegram.service.js";
     ConfigModule,
     forwardRef(() => MarketsModule),
     WalletsModule,
+    SettingsModule,
+    PolymarketModule,
     TypeOrmModule.forFeature([Trade, Market]),
     TelegrafModule.forRootAsync({
       inject: [ConfigService],
