@@ -11,6 +11,7 @@ import { BullJobErrorLogListener } from "./bull-job-error-log.listener.js";
 import { BullJobNdjsonLogService } from "./bull-job-ndjson-log.service.js";
 import { QueueController } from "./queue.controller.js";
 import { QueueService } from "./queue.service.js";
+import { QueueStatsService } from "./queue-stats.service.js";
 import { TradeEnrichmentProcessor } from "./trade-enrichment.processor.js";
 import { TradesProcessor } from "./trades.processor.js";
 import { WalletAnalyticsProcessor } from "./wallet-analytics.processor.js";
@@ -52,12 +53,13 @@ import {
   controllers: [QueueController],
   providers: [
     QueueService,
+    QueueStatsService,
     BullJobNdjsonLogService,
     BullJobErrorLogListener,
     TradesProcessor,
     WalletAnalyticsProcessor,
     TradeEnrichmentProcessor,
   ],
-  exports: [BullModule, QueueService],
+  exports: [BullModule, QueueService, QueueStatsService, BullJobNdjsonLogService],
 })
 export class QueueModule {}

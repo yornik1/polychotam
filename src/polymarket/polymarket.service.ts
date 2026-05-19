@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { MarketSyncService } from "../markets/market-sync.service.js";
 import { buildTopMarketsWsSelectionFromGamma } from "./polymarket-gamma-top-markets.js";
 import { buildTopMarketsWsSelection } from "./polymarket-top-markets.js";
@@ -13,6 +14,7 @@ export class PolymarketService implements OnModuleInit {
   private readonly logger = new Logger(PolymarketService.name);
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly polymarketHttpClient: PolymarketHttpClient,
     private readonly marketSyncService: MarketSyncService,
     private readonly backfillService: BackfillService,
@@ -22,7 +24,8 @@ export class PolymarketService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     await this.marketSyncService.syncSnapshot();
 
-    const selection = await this.resolveTopMarketsWsSelection(20);
+    const limit = this.resolveTopMarketsLimit();
+    const selection = await this.resolveTopMarketsWsSelection(limit);
     if (selection.gammaSource.length > 0) {
       await this.marketSyncService.upsertGammaMarketsAndCollectNewlyResolved(
         selection.gammaSource,
@@ -46,6 +49,20 @@ export class PolymarketService implements OnModuleInit {
     this.logger.log(
       `Live WS подключён; deep backfill поставлен в очередь для ${selection.rows.length} рынков`,
     );
+  }
+
+  /**
+   * Лимит топ-маркетов для WS-подписки. Дефолт 20.
+   * Polymarket CLOB market channel позволяет подписаться на много assets_ids,
+   * но больше = больше нагрузки и риск rate limit.
+   */
+  private resolveTopMarketsLimit(): number {
+    const raw = this.configService.get<string>("POLYMARKET_TOP_MARKETS_LIMIT");
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 20;
+    }
+    return Math.min(Math.floor(parsed), 200);
   }
 
   private async resolveTopMarketsWsSelection(
