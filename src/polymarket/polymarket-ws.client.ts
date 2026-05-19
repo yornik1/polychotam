@@ -19,6 +19,7 @@ import {
   TRADES_JOB_PROCESS,
   TRADES_QUEUE_NAME,
 } from "../queue/trades-queue.config.js";
+import { WsUptimeService } from "./ws-uptime.service.js";
 
 /** Полный цикл после ошибки HTTP/обрыва WS (спека). */
 const RECONNECT_MS = 5000;
@@ -40,6 +41,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
     private readonly polymarketHttpClient: PolymarketHttpClient,
     private readonly marketResolutionService: PolymarketMarketResolutionService,
     private readonly wsStatusService: PolymarketWsStatusService,
+    private readonly wsUptimeService: WsUptimeService,
     @InjectQueue(TRADES_QUEUE_NAME)
     private readonly tradesQueue: Queue<TradeEvent>,
   ) {}
@@ -91,6 +93,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
     if (this.ws === null) {
       return;
     }
+    void this.wsUptimeService.markClose();
     const old = this.ws;
     this.ws = null;
     old.removeAllListeners();
@@ -241,6 +244,10 @@ export class PolymarketWsClient implements OnModuleDestroy {
     this.ws = socket;
 
     socket.on("open", () => {
+      void this.wsUptimeService.markOpen().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+        this.logger.error(`ws uptime markOpen: ${message}`);
+      });
       this.logger.log("WS подключился к Polymarket CLOB");
       this.wsStatusService.setConnected(true, assetIds.length);
       // Подписка market channel: поле assets_ids — clob token_id (дока Polymarket).
@@ -266,6 +273,10 @@ export class PolymarketWsClient implements OnModuleDestroy {
     });
 
     socket.on("close", (code, reason) => {
+      void this.wsUptimeService.markClose().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+        this.logger.error(`ws uptime markClose: ${message}`);
+      });
       this.stopPing();
       this.wsStatusService.setConnected(false);
       this.wsStatusService.recordReconnect();
@@ -278,6 +289,11 @@ export class PolymarketWsClient implements OnModuleDestroy {
 
     socket.on("error", (error: Error) => {
       this.logger.error(`WS ошибка: ${error.message}`);
+      void this.wsUptimeService.markClose().catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : "Неизвестная ошибка";
+        this.logger.error(`ws uptime markClose после error: ${message}`);
+      });
+      this.scheduleReconnect();
     });
   }
 }

@@ -26,9 +26,15 @@ export interface SmartWalletDetail extends SmartWalletStats {
   }>;
 }
 
+interface SmartWhaleWhitelistCache {
+  expiresAt: number;
+  addresses: Set<string>;
+  statsByAddress: Map<string, SmartWalletStats>;
+}
+
 @Injectable()
 export class SmartWalletsService {
-  private cache: { expiresAt: number; addresses: Set<string> } | null = null;
+  private cache: SmartWhaleWhitelistCache | null = null;
   private static readonly CACHE_TTL_MS = 60_000;
 
   constructor(
@@ -45,19 +51,52 @@ export class SmartWalletsService {
       return false;
     }
 
-    const now = Date.now();
-    if (this.cache === null || this.cache.expiresAt <= now) {
-      const wallets = await this.smartWalletRepository.find({
-        where: { active: true },
-        select: { address: true },
-      });
-      this.cache = {
-        expiresAt: now + SmartWalletsService.CACHE_TTL_MS,
-        addresses: new Set(wallets.map((w) => w.address.trim().toLowerCase())),
-      };
+    await this.ensureWhitelistCache();
+    return this.cache!.addresses.has(normalized);
+  }
+
+  /** Метрики smart-кошелька для обогащения алерта (тот же TTL-кэш, что и whitelist). */
+  async getStatsByAddress(address: string): Promise<SmartWalletStats | null> {
+    const normalized = address.trim().toLowerCase();
+    if (normalized.length === 0) {
+      return null;
     }
 
-    return this.cache.addresses.has(normalized);
+    await this.ensureWhitelistCache();
+    return this.cache!.statsByAddress.get(normalized) ?? null;
+  }
+
+  private async ensureWhitelistCache(): Promise<void> {
+    const now = Date.now();
+    if (this.cache !== null && this.cache.expiresAt > now) {
+      return;
+    }
+
+    const wallets = await this.smartWalletRepository.find({
+      where: { active: true },
+    });
+    const addresses = new Set<string>();
+    const statsByAddress = new Map<string, SmartWalletStats>();
+    for (const w of wallets) {
+      const key = w.address.trim().toLowerCase();
+      addresses.add(key);
+      statsByAddress.set(key, {
+        address: w.address,
+        active: w.active,
+        hit_rate: w.hit_rate,
+        sum_pnl: w.sum_pnl,
+        roi_pct: w.roi_pct,
+        whale_trade_count: w.whale_trade_count,
+        notes: w.notes,
+        source: w.source,
+      });
+    }
+
+    this.cache = {
+      expiresAt: now + SmartWalletsService.CACHE_TTL_MS,
+      addresses,
+      statsByAddress,
+    };
   }
 
   /** Весь активный whitelist для /whales. */

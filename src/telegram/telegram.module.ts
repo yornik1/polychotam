@@ -7,6 +7,7 @@ import { PolymarketModule } from "../polymarket/polymarket.module.js";
 import { Trade } from "../trades/trade.entity.js";
 import { Market } from "../markets/market.entity.js";
 import { WalletsModule } from "../wallets/wallets.module.js";
+import { SettingsModule } from "../settings/settings.module.js";
 import { TelegramController } from "./telegram.controller.js";
 import { TradeAlertService } from "./trade-alert.service.js";
 import { TelegramUpdate } from "./telegram.update.js";
@@ -17,6 +18,7 @@ import { TelegramService } from "./telegram.service.js";
     ConfigModule,
     forwardRef(() => MarketsModule),
     WalletsModule,
+    SettingsModule,
     forwardRef(() => PolymarketModule),
     TypeOrmModule.forFeature([Trade, Market]),
     TelegrafModule.forRootAsync({

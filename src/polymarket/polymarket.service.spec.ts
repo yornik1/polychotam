@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ConfigService } from "@nestjs/config";
 import type { PolymarketHttpClient } from "./polymarket-http.client.js";
 import type { BackfillService } from "./backfill.service.js";
 import type { PolymarketWsClient } from "./polymarket-ws.client.js";
 import { PolymarketService } from "./polymarket.service.js";
 
 type PolymarketServiceCtor = new (
+  configService: Pick<ConfigService, "get">,
   polymarketHttpClient: PolymarketHttpClient,
   marketsSyncService: {
     syncSnapshot(): Promise<void>;
@@ -31,6 +33,10 @@ const gammaMarket = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("PolymarketService", () => {
+  const configService = {
+    get: vi.fn().mockReturnValue(undefined),
+  } as Pick<ConfigService, "get"> as ConfigService;
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -47,6 +53,7 @@ describe("PolymarketService", () => {
 
     const ServiceCtor = PolymarketService as unknown as PolymarketServiceCtor;
     const service = new ServiceCtor(
+      configService,
       { fetchActiveMarketsFromGamma, fetchMarkets } as unknown as PolymarketHttpClient,
       {
         syncSnapshot,
@@ -86,6 +93,7 @@ describe("PolymarketService", () => {
 
     const ServiceCtor = PolymarketService as unknown as PolymarketServiceCtor;
     const service = new ServiceCtor(
+      configService,
       { fetchActiveMarketsFromGamma, fetchMarkets } as unknown as PolymarketHttpClient,
       {
         syncSnapshot,
@@ -144,6 +152,7 @@ describe("PolymarketService", () => {
 
     const ServiceCtor = PolymarketService as unknown as PolymarketServiceCtor;
     const service = new ServiceCtor(
+      configService,
       { fetchActiveMarketsFromGamma, fetchMarkets } as unknown as PolymarketHttpClient,
       {
         syncSnapshot,
@@ -185,6 +194,7 @@ describe("PolymarketService", () => {
 
     const ServiceCtor = PolymarketService as unknown as PolymarketServiceCtor;
     const service = new ServiceCtor(
+      configService,
       { fetchActiveMarketsFromGamma, fetchMarkets } as unknown as PolymarketHttpClient,
       {
         syncSnapshot,

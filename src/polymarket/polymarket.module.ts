@@ -13,10 +13,12 @@ import { PolymarketHttpClient } from "./polymarket-http.client.js";
 import { PolymarketService } from "./polymarket.service.js";
 import { PolymarketWsClient } from "./polymarket-ws.client.js";
 import { PolymarketWsStatusService } from "./polymarket-ws-status.service.js";
+import { WsConnectionEvent } from "./ws-connection-event.entity.js";
+import { WsUptimeService } from "./ws-uptime.service.js";
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Market, Trade]),
+    TypeOrmModule.forFeature([Market, Trade, WsConnectionEvent]),
     PolymarketEnrichmentModule,
   ],
   controllers: [PolymarketController],
@@ -28,6 +30,7 @@ import { PolymarketWsStatusService } from "./polymarket-ws-status.service.js";
     BackfillService,
     PolymarketWsClient,
     PolymarketWsStatusService,
+    WsUptimeService,
     PolymarketMarketResolutionService,
     GammaMarketCronService,
   ],
@@ -38,6 +41,7 @@ import { PolymarketWsStatusService } from "./polymarket-ws-status.service.js";
     BackfillService,
     PolymarketWsClient,
     PolymarketWsStatusService,
+    WsUptimeService,
     PolymarketEnrichmentModule,
     PolymarketMarketResolutionService,
   ],

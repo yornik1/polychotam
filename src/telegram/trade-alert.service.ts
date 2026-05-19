@@ -1,7 +1,10 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { MarketsService } from "../markets/markets.service.js";
+import type { SmartWalletStats } from "../wallets/smart-wallets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
+import { AlertSettingsService } from "../settings/alert-settings.service.js";
+import { formatSmartWhaleAlertMessage } from "./telegram.formatter.js";
 import { TelegramService } from "./telegram.service.js";
 
 const DEFAULT_ALERT_THRESHOLD_AMOUNT = 1000;
@@ -18,12 +21,14 @@ interface TradeAlertInput {
 
 @Injectable()
 export class TradeAlertService {
+  private readonly logger = new Logger(TradeAlertService.name);
   private readonly recentAlertAt = new Map<string, number>();
 
   constructor(
     private readonly configService: ConfigService,
     private readonly marketsService: MarketsService,
     private readonly smartWalletsService: SmartWalletsService,
+    private readonly alertSettingsService: AlertSettingsService,
     private readonly telegramService: TelegramService,
   ) {}
 
@@ -50,15 +55,32 @@ export class TradeAlertService {
       return false;
     }
 
+    if (!(await this.alertSettingsService.isAlertsEnabled())) {
+      return false;
+    }
+
     // Главное изменение: проверяем smart wallet whitelist вместо volume-based top whales
     const isSmartWhale = await this.smartWalletsService.isSmartWhale(address);
     if (!isSmartWhale) {
       return false;
     }
 
+    let stats: SmartWalletStats | null = null;
+    try {
+      stats = await this.smartWalletsService.getStatsByAddress(address);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "неизвестная ошибка";
+      this.logger.warn(`getStatsByAddress не удался, алерт без метрик (${address}): ${message}`);
+      stats = null;
+    }
     const marketLabel = await this.resolveMarketLabel(input.market);
     const sent = await this.telegramService.sendAlert(
-      this.formatAlertMessage(input, marketLabel, amount),
+      formatSmartWhaleAlertMessage(
+        { address, side: input.side },
+        stats,
+        marketLabel,
+        amount,
+      ),
     );
     if (sent) {
       this.recentAlertAt.set(dedupKey, Date.now());
@@ -124,15 +146,5 @@ export class TradeAlertService {
     }
 
     return normalizedConditionId;
-  }
-
-  private formatAlertMessage(input: TradeAlertInput, marketLabel: string, amount: number): string {
-    return [
-      "\u{1F6A8} Smart Whale Trade!",
-      `Wallet: ${input.address}`,
-      `Market: ${marketLabel}`,
-      `Side: ${input.side}`,
-      `Size: $${Math.round(amount).toLocaleString("en-US")}`,
-    ].join("\n");
   }
 }
