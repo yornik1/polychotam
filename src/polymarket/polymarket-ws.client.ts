@@ -288,6 +288,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
         const message = err instanceof Error ? err.message : "Неизвестная ошибка";
         this.logger.error(`ws uptime markClose после error: ${message}`);
       });
+      this.scheduleReconnect();
     });
   }
 }

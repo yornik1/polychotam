@@ -1,6 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { MarketsService } from "../markets/markets.service.js";
+import type { SmartWalletStats } from "../wallets/smart-wallets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { AlertSettingsService } from "../settings/alert-settings.service.js";
 import { formatSmartWhaleAlertMessage } from "./telegram.formatter.js";
@@ -20,6 +21,7 @@ interface TradeAlertInput {
 
 @Injectable()
 export class TradeAlertService {
+  private readonly logger = new Logger(TradeAlertService.name);
   private readonly recentAlertAt = new Map<string, number>();
 
   constructor(
@@ -53,17 +55,24 @@ export class TradeAlertService {
       return false;
     }
 
+    if (!(await this.alertSettingsService.isAlertsEnabled())) {
+      return false;
+    }
+
     // Главное изменение: проверяем smart wallet whitelist вместо volume-based top whales
     const isSmartWhale = await this.smartWalletsService.isSmartWhale(address);
     if (!isSmartWhale) {
       return false;
     }
 
-    if (!(await this.alertSettingsService.isAlertsEnabled())) {
-      return false;
+    let stats: SmartWalletStats | null = null;
+    try {
+      stats = await this.smartWalletsService.getStatsByAddress(address);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "неизвестная ошибка";
+      this.logger.warn(`getStatsByAddress не удался, алерт без метрик (${address}): ${message}`);
+      stats = null;
     }
-
-    const stats = await this.smartWalletsService.getStatsByAddress(address);
     const marketLabel = await this.resolveMarketLabel(input.market);
     const sent = await this.telegramService.sendAlert(
       formatSmartWhaleAlertMessage(

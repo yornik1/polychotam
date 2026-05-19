@@ -125,6 +125,22 @@ export interface SmartWhaleAlertInput {
   side: string;
 }
 
+/** HR в алерте: в БД как доля 0–1 → проценты с одним знаком. */
+function formatAlertHitRatePercent(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined || String(raw).trim() === "") {
+    return null;
+  }
+  return `${(Number(raw) * 100).toFixed(1)}%`;
+}
+
+/** ROI в алерте: в БД уже в процентах. */
+function formatAlertRoiPercent(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined || String(raw).trim() === "") {
+    return null;
+  }
+  return `${Number(raw).toFixed(2)}%`;
+}
+
 export function formatSmartWhaleAlertMessage(
   input: SmartWhaleAlertInput,
   stats: SmartWalletStats | null,
@@ -132,19 +148,9 @@ export function formatSmartWhaleAlertMessage(
   amount: number,
 ): string {
   const hr =
-    stats !== null &&
-    stats.hit_rate !== null &&
-    stats.hit_rate !== undefined &&
-    String(stats.hit_rate).trim() !== ""
-      ? `${(Number(stats.hit_rate) * 100).toFixed(1)}%`
-      : "n/a";
+    stats !== null ? formatAlertHitRatePercent(stats.hit_rate) ?? "n/a" : "n/a";
   const roi =
-    stats !== null &&
-    stats.roi_pct !== null &&
-    stats.roi_pct !== undefined &&
-    String(stats.roi_pct).trim() !== ""
-      ? `${Number(stats.roi_pct).toFixed(2)}%`
-      : "n/a";
+    stats !== null ? formatAlertRoiPercent(stats.roi_pct) ?? "n/a" : "n/a";
   const whaleTrades =
     stats !== null ? String(stats.whale_trade_count) : "n/a";
 

@@ -117,21 +117,27 @@ export class TelegramUpdate {
 
   @Command("stats")
   async handleStats(@Ctx() ctx: ReplyContext): Promise<void> {
-    const [tradesCount, marketsCount, resolvedCount, smartCount, wsUptimeRatio24h] =
-      await Promise.all([
-        this.tradeRepository.count(),
-        this.marketRepository.count(),
-        this.marketRepository.count({
-          where: { closed: true },
-        }),
-        this.smartWalletsService.getActiveWhitelist().then((l) => l.length),
-        this.wsUptimeService.getUptimeRatio24h(),
-      ]);
-
-    const recentTrades = await this.tradeRepository
-      .createQueryBuilder("t")
-      .where("t.match_time >= :since", { since: new Date(Date.now() - 24 * 60 * 60 * 1000) })
-      .getCount();
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [
+      tradesCount,
+      marketsCount,
+      resolvedCount,
+      smartCount,
+      wsUptimeRatio24h,
+      recentTrades,
+    ] = await Promise.all([
+      this.tradeRepository.count(),
+      this.marketRepository.count(),
+      this.marketRepository.count({
+        where: { closed: true },
+      }),
+      this.smartWalletsService.getActiveWhitelist().then((l) => l.length),
+      this.wsUptimeService.getUptimeRatio24h(),
+      this.tradeRepository
+        .createQueryBuilder("t")
+        .where("t.match_time >= :since", { since })
+        .getCount(),
+    ]);
 
     const wsConnectedForMs = this.wsUptimeService.getElapsedMs();
 

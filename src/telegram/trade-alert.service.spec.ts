@@ -27,6 +27,7 @@ describe("TradeAlertService", () => {
     marketRecord?: { question?: string; market_slug?: string } | null;
     stats?: SmartWalletStats | null;
     alertsEnabled?: boolean;
+    getStatsThrows?: boolean;
   }) {
     const sendAlert = vi.fn().mockResolvedValue(overrides?.sendAlert ?? true);
     const isSmartWhale = vi
@@ -35,6 +36,9 @@ describe("TradeAlertService", () => {
     const getStatsByAddress = vi
       .fn<(address: string) => Promise<SmartWalletStats | null>>()
       .mockImplementation(async (address: string) => {
+        if (overrides?.getStatsThrows) {
+          throw new Error("db unavailable");
+        }
         if (overrides?.stats === null) {
           return null;
         }
@@ -95,7 +99,7 @@ describe("TradeAlertService", () => {
   });
 
   it("не отправляет alert, если глобально выключено /alerts off", async () => {
-    const { service, isAlertsEnabled, sendAlert, findByConditionId } = createService({
+    const { service, isAlertsEnabled, isSmartWhale, sendAlert, findByConditionId } = createService({
       threshold: "1000",
       isSmartWhale: true,
       alertsEnabled: false,
@@ -111,6 +115,7 @@ describe("TradeAlertService", () => {
     ).resolves.toBe(false);
 
     expect(isAlertsEnabled).toHaveBeenCalled();
+    expect(isSmartWhale).not.toHaveBeenCalled();
     expect(findByConditionId).not.toHaveBeenCalled();
     expect(sendAlert).not.toHaveBeenCalled();
   });
@@ -212,6 +217,26 @@ describe("TradeAlertService", () => {
     expect(findByConditionId).toHaveBeenCalledWith("0xmarket");
     expect(sendAlert).toHaveBeenCalledWith(expect.stringContaining("Will BTC be above $100k?"));
     expect(sendAlert).not.toHaveBeenCalledWith(expect.stringContaining("Market: 0xmarket"));
+  });
+
+  it("при ошибке getStatsByAddress отправляет алерт с HR n/a", async () => {
+    const { service, sendAlert } = createService({
+      threshold: "1000",
+      isSmartWhale: true,
+      getStatsThrows: true,
+    });
+
+    await expect(
+      service.maybeSendTradeAlert({
+        address: "0xmaker",
+        market: "0xmarket",
+        side: "BUY",
+        amount: "1500",
+      }),
+    ).resolves.toBe(true);
+
+    expect(sendAlert).toHaveBeenCalledTimes(1);
+    expect(sendAlert).toHaveBeenCalledWith(expect.stringMatching(/HR:\s*n\/a/i));
   });
 
   it("не дублирует alert при повторном вызове с тем же tradeTimestamp в окне dedup", async () => {

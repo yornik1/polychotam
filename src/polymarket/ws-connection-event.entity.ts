@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
+import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from "typeorm";
 
 export type WsConnectionKind = "open" | "close";
 
@@ -12,4 +12,8 @@ export class WsConnectionEvent {
 
   @Column({ type: "timestamptz" })
   at!: Date;
+
+  /** Время вставки строки (для диагностики и восстановления после сбоев). */
+  @CreateDateColumn({ type: "timestamptz", name: "internal_created_at" })
+  internal_created_at!: Date;
 }

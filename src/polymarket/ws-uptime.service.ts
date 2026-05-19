@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { LessThan, MoreThanOrEqual, Repository } from "typeorm";
 import { WsConnectionEvent } from "./ws-connection-event.entity.js";
@@ -7,13 +7,33 @@ const WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** Uptime WS к CLOB: события в БД + текущее подключение в памяти. */
 @Injectable()
-export class WsUptimeService {
+export class WsUptimeService implements OnModuleInit {
+  private readonly logger = new Logger(WsUptimeService.name);
   private currentConnectedAt: Date | null = null;
 
   constructor(
     @InjectRepository(WsConnectionEvent)
     private readonly eventRepository: Repository<WsConnectionEvent>,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.closeDanglingOpenFromPreviousProcess();
+  }
+
+  /** После SIGKILL/краша последнее событие может остаться open — закрываем, иначе 24h uptime завышается. */
+  private async closeDanglingOpenFromPreviousProcess(): Promise<void> {
+    const last = await this.eventRepository.findOne({
+      order: { at: "DESC" },
+    });
+    if (last?.kind !== "open") {
+      return;
+    }
+    const at = new Date();
+    await this.eventRepository.save({ kind: "close", at });
+    this.logger.warn(
+      "WS: последнее событие в БД было open без close (вероятно аварийный выход); дописан synthetic close",
+    );
+  }
 
   getElapsedMs(): number {
     if (this.currentConnectedAt === null) {
