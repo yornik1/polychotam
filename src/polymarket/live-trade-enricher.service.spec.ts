@@ -109,7 +109,7 @@ describe("LiveTradeEnricherService", () => {
     expect(result).toBe("0xtrailing");
   });
 
-  it("матчит сделку при расхождении timestamp в пределах 2 секунд", async () => {
+  it("матчит сделку при расхождении timestamp в пределах 10 секунд", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -121,7 +121,7 @@ describe("LiveTradeEnricherService", () => {
             side: "BUY",
             size: "219.217767",
             price: "0.456",
-            match_time: 1700000002,
+            match_time: 1700000009,
             maker_address: "0xclose-ts",
           },
         ]),
@@ -133,7 +133,7 @@ describe("LiveTradeEnricherService", () => {
     expect(result).toBe("0xclose-ts");
   });
 
-  it("не матчит сделку при расхождении timestamp больше 2 секунд", async () => {
+  it("не матчит сделку при расхождении timestamp больше 10 секунд", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -145,7 +145,7 @@ describe("LiveTradeEnricherService", () => {
             side: "BUY",
             size: "219.217767",
             price: "0.456",
-            match_time: 1700000004,
+            match_time: 1700000011,
             maker_address: "0xfar-ts",
           },
         ]),
@@ -155,6 +155,30 @@ describe("LiveTradeEnricherService", () => {
     const result = await createService().findMakerAddress(createJob());
 
     expect(result).toBeNull();
+  });
+
+  it("матчит сделку при округлении price на стороне WS (0.933 vs 0.9329999...)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          {
+            market: "0xmarket",
+            asset_id: "asset-1",
+            side: "BUY",
+            size: "219.217767",
+            price: 0.4559999234939844,
+            match_time: 1700000000,
+            maker_address: "0xprice-approx",
+          },
+        ]),
+      }),
+    );
+
+    const result = await createService().findMakerAddress(createJob());
+
+    expect(result).toBe("0xprice-approx");
   });
 
   it("бросает ошибку при невалидном payload upstream", async () => {
