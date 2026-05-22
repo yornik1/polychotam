@@ -22,8 +22,9 @@ export class WsUptimeService implements OnModuleInit {
 
   /** После SIGKILL/краша последнее событие может остаться open — закрываем, иначе 24h uptime завышается. */
   private async closeDanglingOpenFromPreviousProcess(): Promise<void> {
-    const last = await this.eventRepository.findOne({
+    const [last] = await this.eventRepository.find({
       order: { at: "DESC" },
+      take: 1,
     });
     if (last?.kind !== "open") {
       return;
