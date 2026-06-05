@@ -23,11 +23,37 @@ concurrency:
 
 jobs:
   deploy:
-    name: SSH и docker compose
+    name: Проверки, SSH и docker compose
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Тесты
+        run: npm run test
+
+      - name: Сборка NestJS
+        run: npm run build
+
       - name: Деплой по SSH
         uses: appleboy/ssh-action@v1.2.2
         with:
@@ -44,3 +70,18 @@ jobs:
             git checkout "${{ inputs.git_ref }}"
             git pull origin "${{ inputs.git_ref }}"
             docker compose -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.prod.yml ps
+
+            for attempt in 1 2 3 4 5; do
+              if curl -fsS http://localhost:3000/health >/dev/null; then
+                echo "Health check passed"
+                exit 0
+              fi
+
+              echo "Health check failed, retry ${attempt}/5"
+              sleep 5
+            done
+
+            echo "Health check failed after deploy. Last app logs:"
+            docker compose -f docker-compose.prod.yml logs --tail 120 app
+            exit 1

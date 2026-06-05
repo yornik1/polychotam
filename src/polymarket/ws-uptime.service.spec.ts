@@ -15,9 +15,11 @@ function isLastBeforeWindowQuery(opts: unknown): boolean {
   );
 }
 
-function attachFindOneForInit(
+function attachRepositoryReadsForInit(
   findOne: ReturnType<typeof vi.fn>,
+  find: ReturnType<typeof vi.fn>,
   lastBeforeResult: WsConnectionEvent | null,
+  latestResult: WsConnectionEvent | null = null,
 ): void {
   findOne.mockImplementation((opts?: { where?: unknown }) => {
     if (isLastBeforeWindowQuery(opts)) {
@@ -25,6 +27,7 @@ function attachFindOneForInit(
     }
     return Promise.resolve(null);
   });
+  find.mockResolvedValueOnce(latestResult === null ? [] : [latestResult]);
 }
 
 describe("WsUptimeService", () => {
@@ -46,18 +49,16 @@ describe("WsUptimeService", () => {
     const recoveryAt = new Date("2026-01-10T20:00:00.000Z");
     vi.setSystemTime(recoveryAt);
 
-    findOne.mockImplementation((opts?: { where?: unknown }) => {
-      if (isLastBeforeWindowQuery(opts)) {
-        return Promise.resolve(null);
-      }
-      return Promise.resolve(
-        Object.assign(new WsConnectionEvent(), {
-          id: "1",
-          kind: "open" as const,
-          at: danglingOpenAt,
-        }),
-      );
-    });
+    attachRepositoryReadsForInit(
+      findOne,
+      find,
+      null,
+      Object.assign(new WsConnectionEvent(), {
+        id: "1",
+        kind: "open" as const,
+        at: danglingOpenAt,
+      }),
+    );
 
     const service = new WsUptimeService(repo);
     await service.onModuleInit();
@@ -73,18 +74,16 @@ describe("WsUptimeService", () => {
     const find = vi.fn();
     const repo = { save, findOne, find } as unknown as Repository<WsConnectionEvent>;
 
-    findOne.mockImplementation((opts?: { where?: unknown }) => {
-      if (isLastBeforeWindowQuery(opts)) {
-        return Promise.resolve(null);
-      }
-      return Promise.resolve(
-        Object.assign(new WsConnectionEvent(), {
-          id: "1",
-          kind: "close" as const,
-          at: new Date("2026-01-10T10:00:00.000Z"),
-        }),
-      );
-    });
+    attachRepositoryReadsForInit(
+      findOne,
+      find,
+      null,
+      Object.assign(new WsConnectionEvent(), {
+        id: "1",
+        kind: "close" as const,
+        at: new Date("2026-01-10T10:00:00.000Z"),
+      }),
+    );
 
     const service = new WsUptimeService(repo);
     await service.onModuleInit();
@@ -103,14 +102,12 @@ describe("WsUptimeService", () => {
     const windowEnd = new Date("2026-01-02T12:00:00.000Z");
 
     vi.setSystemTime(recoveryTime);
-    findOne.mockImplementation((opts?: { where?: unknown }) => {
-      if (isLastBeforeWindowQuery(opts)) {
-        return Promise.resolve(null);
-      }
-      return Promise.resolve(
-        Object.assign(new WsConnectionEvent(), { kind: "open" as const, at: crashOpen }),
-      );
-    });
+    attachRepositoryReadsForInit(
+      findOne,
+      find,
+      null,
+      Object.assign(new WsConnectionEvent(), { kind: "open" as const, at: crashOpen }),
+    );
 
     const service = new WsUptimeService(repo);
     await service.onModuleInit();
@@ -157,8 +154,9 @@ describe("WsUptimeService", () => {
     const lastBeforeOpenAt = new Date("2026-01-01T06:00:00.000Z");
     const closeInWindow = new Date("2026-01-01T18:00:00.000Z");
 
-    attachFindOneForInit(
+    attachRepositoryReadsForInit(
       findOne,
+      find,
       Object.assign(new WsConnectionEvent(), {
         kind: "open" as const,
         at: lastBeforeOpenAt,
@@ -187,7 +185,7 @@ describe("WsUptimeService", () => {
     const find = vi.fn();
 
     const repo = { save, findOne, find } as unknown as Repository<WsConnectionEvent>;
-    attachFindOneForInit(findOne, null);
+    attachRepositoryReadsForInit(findOne, find, null);
     const service = new WsUptimeService(repo);
     await service.onModuleInit();
 
@@ -220,7 +218,7 @@ describe("WsUptimeService", () => {
     const histClose = new Date("2026-01-01T16:00:00.000Z");
     const lastOpen = new Date("2026-01-02T10:00:00.000Z");
 
-    attachFindOneForInit(findOne, null);
+    attachRepositoryReadsForInit(findOne, find, null);
     const repo = { save, findOne, find } as unknown as Repository<WsConnectionEvent>;
     const service = new WsUptimeService(repo);
     await service.onModuleInit();
