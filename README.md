@@ -22,6 +22,7 @@ src/
   queue/          — 3 BullMQ-процессора: trades, trade-enrichment, wallet-analytics
                     + NDJSON-логирование ошибок джобов
   polymarket/     — WS-клиент CLOB, REST-клиент, Gamma API + cron, backfill истории
+  settings/       — глобальные флаги приложения и настройки алертов
   telegram/       — бот, форматтер сообщений, дедуп алертов
   common/         — общие утилиты
   migrations/     — миграции TypeORM

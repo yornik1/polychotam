@@ -7,6 +7,7 @@
 - `wallets` — кошельки и расчёт P&L
 - `queue` — очереди задач (BullMQ)
 - `polymarket` — WebSocket-интеграция с Polymarket CLOB API
+- `settings` — глобальные настройки приложения и флаги алертов
 - `telegram` — Telegram-бот и команды
 - `common` — общие утилиты, guards, interceptors
 
@@ -16,7 +17,7 @@
 - **Имена колонок** в БД и в entity совпадают с полями **CLOB API** и типами **`@polymarket/clob-client`** (например `condition_id`, `market_slug`, `volume24hr`, `end_date_iso`, в сделках — `market`, `asset_id`, `match_time`, `maker_orders` и т.д.). Поля только приложения — с префиксом **`internal_`** (`internal_synced_at`, `internal_created_at`, `internal_updated_at` у маркетов; у `wallets` — `internal_updated_at` для времени пересчёта агрегатов).
 - Внешние HTTP DTO (например `MarketDto` с camelCase) **не обязаны** повторять Polymarket; маппинг DTO ↔ entity — в сервисах.
 - Миграции: `src/migrations/`. `synchronize` отключён — схема только через миграции.
-- Команды (перед этим нужен **`npm run build`**, datasource подключается из **`dist/data-source.js`**):
+- Datasource подключается из **`dist/data-source.js`**. Команды `migration:run/revert/generate` **сами включают `nest build`** — отдельный `npm run build` перед ними не нужен:
   - применить: `npm run migration:run`
   - откатить последнюю: `npm run migration:revert`
   - сгенерировать по diff: `npm run migration:generate -- src/migrations/ИмяМиграции`

@@ -52,10 +52,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 ## Миграции (первый раз)
 
 ```bash
-docker compose -f docker-compose.prod.yml exec app node dist/main.js  # подожди 5с пока БД поднимется
-# Миграции запускаются при сборке (nest build + migration:run в Dockerfile)
-# Или вручную:
-docker compose -f docker-compose.prod.yml exec app npx typeorm migration:run -d dist/data-source.js
+# При обычном старте контейнера миграции применяются автоматически в docker-entrypoint.sh
+# Если нужно прогнать вручную повторно:
+docker compose -f docker-compose.prod.yml exec app node ./node_modules/typeorm/cli.js migration:run -d dist/data-source.js
 ```
 
 ## Проверка
