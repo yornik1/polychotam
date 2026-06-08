@@ -36,6 +36,47 @@ export interface MarketResolution {
   winning_outcome: string | null;
 }
 
+export type MarketScoreReasonImpact = "positive" | "neutral" | "negative";
+export type MarketScoreConclusionCode = "insufficient_data" | "strong_watch" | "medium_watch" | "weak_signal";
+export type MarketScoreReasonCode =
+  | "tradable_status"
+  | "not_tradable_status"
+  | "valid_prices"
+  | "high_volume24hr"
+  | "some_volume24hr"
+  | "high_liquidity"
+  | "some_liquidity";
+export type MarketScoreDataGapCode =
+  | "not_tradable"
+  | "missing_prices"
+  | "missing_volume24hr"
+  | "missing_liquidity"
+  | "missing_end_date";
+
+export interface MarketScoreInput {
+  active: boolean;
+  closed: boolean;
+  accepting_orders: boolean | null;
+  tokens: unknown;
+  liquidity: number;
+  volume24hr: number;
+  end_date_iso: string | null;
+}
+
+export interface MarketScoreReason {
+  code: MarketScoreReasonCode;
+  impact: MarketScoreReasonImpact;
+  value?: number;
+}
+
+export interface MarketScore {
+  score: number;
+  conclusion: MarketScoreConclusionCode;
+  reasons: MarketScoreReason[];
+  dataGaps: MarketScoreDataGapCode[];
+  hasEnoughData: boolean;
+}
+
 export interface WalletRecalculateJob {
   address: string;
 }

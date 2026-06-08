@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import { Market } from "../markets/market.entity.js";
 import { Wallet } from "../wallets/wallet.entity.js";
 import type { SmartWalletStats } from "../wallets/smart-wallets.service.js";
+import type { MarketScore } from "../types/contracts.js";
 import {
   formatMarketMessage,
+  formatMarketScoreChoicesMessage,
+  formatMarketScoreMessage,
   formatSmartWhaleAlertMessage,
   formatStartMessage,
   formatStatsMessage,
@@ -14,6 +17,81 @@ describe("telegram formatter", () => {
   it("formatStartMessage возвращает список команд", () => {
     expect(formatStartMessage()).toContain("/top");
     expect(formatStartMessage()).toContain("/market");
+    expect(formatStartMessage()).toContain("/score");
+  });
+
+  it("formatMarketScoreMessage показывает score, вывод и причины", () => {
+    const score: MarketScore = {
+      score: 82,
+      conclusion: "strong_watch",
+      reasons: [
+        { code: "high_volume24hr", value: 250_000, impact: "positive" },
+        { code: "high_liquidity", value: 75_000, impact: "positive" },
+      ],
+      dataGaps: [],
+      hasEnoughData: true,
+    };
+
+    const message = formatMarketScoreMessage(
+      {
+        question: "Will BTC hit $100k?",
+        market_slug: "btc-100k",
+        condition_id: "condition-1",
+      } as Market,
+      score,
+    );
+
+    expect(message).toContain("Will BTC hit $100k?");
+    expect(message).toContain("Score: 82/100");
+    expect(message).toContain("Сильный рынок");
+    expect(message).toContain("Объём");
+    expect(message).toContain("btc-100k");
+  });
+
+  it("formatMarketScoreMessage честно показывает data gaps", () => {
+    const score: MarketScore = {
+      score: 40,
+      conclusion: "insufficient_data",
+      reasons: [],
+      dataGaps: ["missing_prices", "missing_volume24hr"],
+      hasEnoughData: false,
+    };
+
+    const message = formatMarketScoreMessage(
+      {
+        question: "Sparse market",
+        market_slug: "sparse-market",
+        condition_id: "condition-2",
+      } as Market,
+      score,
+    );
+
+    expect(message).toContain("Недостаточно данных");
+    expect(message).toContain("Чего не хватает");
+    expect(message).toContain("нет валидных цен исходов");
+  });
+
+  it("formatMarketScoreChoicesMessage показывает top markets и numbered follow-up", () => {
+    const message = formatMarketScoreChoicesMessage([
+      {
+        question: "Will BTC hit $100k?",
+        market_slug: "btc-100k",
+        condition_id: "condition-1",
+        volume24hr: 250_000,
+      } as Market,
+      {
+        question: "Will ETH hit $10k?",
+        market_slug: "eth-10k",
+        condition_id: "condition-2",
+        volume24hr: 125_000,
+      } as Market,
+    ]);
+
+    expect(message).toContain("Выбери рынок");
+    expect(message).toContain("1. Will BTC hit $100k?");
+    expect(message).toContain("/score 1");
+    expect(message).toContain("btc-100k");
+    expect(message).toContain("$250,000");
   });
 
   it("formatMarketMessage показывает вопрос, odds, volume и close date", () => {

@@ -3,8 +3,10 @@ import { Repository } from "typeorm";
 import { Market } from "../markets/market.entity.js";
 import { Trade } from "../trades/trade.entity.js";
 import { MarketsService } from "../markets/markets.service.js";
+import { MarketScoreService } from "../markets/market-score.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { WalletsService } from "../wallets/wallets.service.js";
+import type { MarketScore } from "../types/contracts.js";
 import type { QueueStatsService } from "../queue/queue-stats.service.js";
 import type { PolymarketWsStatusService } from "../polymarket/polymarket-ws-status.service.js";
 import type { AlertSettingsService } from "../settings/alert-settings.service.js";
@@ -19,6 +21,9 @@ interface ReplyContext {
 describe("TelegramUpdate", () => {
   function createUpdate() {
     const findBySlug = vi.fn<(slug: string) => Promise<Market | null>>();
+    const findByConditionId = vi.fn<(conditionId: string) => Promise<Market | null>>();
+    const getScoreCandidates = vi.fn<(limit?: number) => Promise<Market[]>>();
+    const scoreMarket = vi.fn<(market: Market) => MarketScore>();
     const getTopWalletsByVolumeOnTopMarkets = vi.fn<
       () => Promise<Array<{ address: string; totalVolume: string; tradeCount: number }>>
     >();
@@ -39,7 +44,8 @@ describe("TelegramUpdate", () => {
     };
 
     const update = new TelegramUpdate(
-      { findBySlug } as unknown as MarketsService,
+      { findBySlug, findByConditionId, getScoreCandidates } as unknown as MarketsService,
+      { scoreMarket } as unknown as MarketScoreService,
       { getTopWalletsByVolumeOnTopMarkets } as unknown as WalletsService,
       {} as unknown as SmartWalletsService,
       queueStatsService as unknown as QueueStatsService,
@@ -53,6 +59,9 @@ describe("TelegramUpdate", () => {
     return {
       update,
       findBySlug,
+      findByConditionId,
+      getScoreCandidates,
+      scoreMarket,
       getTopWalletsByVolumeOnTopMarkets,
       alertSettingsService,
       wsUptimeService,
@@ -120,6 +129,181 @@ describe("TelegramUpdate", () => {
     } as ReplyContext);
 
     expect(reply).toHaveBeenCalledWith("Укажи slug: /market <slug>");
+  });
+
+  it("отвечает score для найденного slug", async () => {
+    const { update, findBySlug, findByConditionId, scoreMarket } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    const market = {
+      question: "Will BTC hit $100k?",
+      market_slug: "btc-100k",
+      condition_id: "condition-1",
+    } as Market;
+    findBySlug.mockResolvedValue(market);
+    scoreMarket.mockReturnValue({
+      score: 82,
+      conclusion: "strong_watch",
+      reasons: [{ code: "high_volume24hr", value: 250_000, impact: "positive" }],
+      dataGaps: [],
+      hasEnoughData: true,
+    });
+
+    await update.handleScore({ payload: "btc-100k", reply } as ReplyContext);
+
+    expect(findBySlug).toHaveBeenCalledWith("btc-100k");
+    expect(findByConditionId).not.toHaveBeenCalled();
+    expect(scoreMarket).toHaveBeenCalledWith(market);
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("Score: 82/100"));
+  });
+
+  it("ищет score по condition id, если slug не найден", async () => {
+    const { update, findBySlug, findByConditionId, scoreMarket } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    const market = {
+      question: "Will ETH hit $10k?",
+      market_slug: "eth-10k",
+      condition_id: "condition-2",
+    } as Market;
+    findBySlug.mockResolvedValue(null);
+    findByConditionId.mockResolvedValue(market);
+    scoreMarket.mockReturnValue({
+      score: 65,
+      conclusion: "medium_watch",
+      reasons: [],
+      dataGaps: [],
+      hasEnoughData: true,
+    });
+
+    await update.handleScore({ payload: "condition-2", reply } as ReplyContext);
+
+    expect(findBySlug).toHaveBeenCalledWith("condition-2");
+    expect(findByConditionId).toHaveBeenCalledWith("condition-2");
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("ETH"));
+  });
+
+  it("сообщает, если рынок для score не найден", async () => {
+    const { update, findBySlug, findByConditionId, scoreMarket } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    findBySlug.mockResolvedValue(null);
+    findByConditionId.mockResolvedValue(null);
+
+    await update.handleScore({ payload: "missing-market", reply } as ReplyContext);
+
+    expect(scoreMarket).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith("Маркет не найден. Попробуй другой slug или condition id.");
+  });
+
+  it("не роняет бота при ошибке score dependency", async () => {
+    const { update, findBySlug } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    findBySlug.mockRejectedValue(new Error("db down"));
+
+    await update.handleScore({ payload: "btc-100k", reply } as ReplyContext);
+
+    expect(reply).toHaveBeenCalledWith("Не удалось оценить рынок. Попробуй позже.");
+  });
+
+  it("показывает top markets для выбора, если /score вызвали без аргумента", async () => {
+    const { update, getScoreCandidates } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    getScoreCandidates.mockResolvedValue([
+      {
+        question: "Will BTC hit $100k?",
+        market_slug: "btc-100k",
+        condition_id: "condition-1",
+        volume24hr: 250_000,
+      } as Market,
+    ]);
+
+    await update.handleScore({ payload: "", chat: { id: 42 }, reply } as ReplyContext);
+
+    expect(getScoreCandidates).toHaveBeenCalledWith(5);
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("Выбери рынок"));
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("/score 1"));
+  });
+
+  it("оценивает рынок по номеру из текущих score candidates", async () => {
+    const { update, getScoreCandidates, findBySlug, scoreMarket } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    const market = {
+      question: "Will BTC hit $100k?",
+      market_slug: "btc-100k",
+      condition_id: "condition-1",
+      volume24hr: 250_000,
+    } as Market;
+    getScoreCandidates.mockResolvedValue([market]);
+    findBySlug.mockResolvedValue(market);
+    scoreMarket.mockReturnValue({
+      score: 82,
+      conclusion: "strong_watch",
+      reasons: [],
+      dataGaps: [],
+      hasEnoughData: true,
+    });
+
+    await update.handleScore({ payload: "1", reply } as ReplyContext);
+
+    expect(getScoreCandidates).toHaveBeenCalledWith(5);
+    expect(findBySlug).toHaveBeenCalledWith("btc-100k");
+    expect(reply).toHaveBeenLastCalledWith(expect.stringContaining("Score: 82/100"));
+  });
+
+  it("сообщает, если номер score candidate вне списка", async () => {
+    const { update, getScoreCandidates, findBySlug } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    getScoreCandidates.mockResolvedValue([]);
+
+    await update.handleScore({ payload: "1", reply } as ReplyContext);
+
+    expect(findBySlug).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith("Не вижу рынка под таким номером. Вызови /score и выбери номер из списка.");
+  });
+
+  it("не считает hex condition id номером score candidate", async () => {
+    const { update, getScoreCandidates, findBySlug, findByConditionId, scoreMarket } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    const market = {
+      question: "Will BTC hit $100k?",
+      market_slug: "btc-100k",
+      condition_id: "0x123",
+      volume24hr: 250_000,
+    } as Market;
+    findBySlug.mockResolvedValue(null);
+    findByConditionId.mockResolvedValue(market);
+    scoreMarket.mockReturnValue({
+      score: 82,
+      conclusion: "strong_watch",
+      reasons: [],
+      dataGaps: [],
+      hasEnoughData: true,
+    });
+
+    await update.handleScore({ payload: "0x123", reply } as ReplyContext);
+
+    expect(getScoreCandidates).not.toHaveBeenCalled();
+    expect(findBySlug).toHaveBeenCalledWith("0x123");
+    expect(findByConditionId).toHaveBeenCalledWith("0x123");
+    expect(reply).toHaveBeenLastCalledWith(expect.stringContaining("Score: 82/100"));
+  });
+
+  it("сообщает, если рынков для chooser пока нет", async () => {
+    const { update, getScoreCandidates } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    getScoreCandidates.mockResolvedValue([]);
+
+    await update.handleScore({ payload: "", reply } as ReplyContext);
+
+    expect(reply).toHaveBeenCalledWith("Пока нет рынков для выбора. Попробуй /score <slug-or-condition_id>.");
+  });
+
+  it("не роняет бота при ошибке chooser dependency", async () => {
+    const { update, getScoreCandidates } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+    getScoreCandidates.mockRejectedValue(new Error("db down"));
+
+    await update.handleScore({ payload: "", reply } as ReplyContext);
+
+    expect(reply).toHaveBeenCalledWith("Не удалось получить список рынков. Попробуй /score <slug-or-condition_id>.");
   });
 
   it("отвечает formatted top whales для /top", async () => {

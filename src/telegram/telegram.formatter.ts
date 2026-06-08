@@ -1,5 +1,11 @@
 import { Market } from "../markets/market.entity.js";
 import { Wallet } from "../wallets/wallet.entity.js";
+import type {
+  MarketScore,
+  MarketScoreConclusionCode,
+  MarketScoreDataGapCode,
+  MarketScoreReason,
+} from "../types/contracts.js";
 import type { SmartWalletStats, SmartWalletDetail } from "../wallets/smart-wallets.service.js";
 
 interface MarketTokenLike {
@@ -64,6 +70,7 @@ export function formatStartMessage(): string {
     "/whales — smart whale whitelist",
     "/whale &lt;addr&gt; — детали кошелька",
     "/market &lt;slug&gt; — инфо по маркету",
+    "/score &lt;slug-or-id&gt; — оценка рынка",
     "/top — топ по объёму (все киты)",
     "/stats — статистика системы",
     "/alerts [on|off] — глобально вкл/выкл TG-алерты",
@@ -95,6 +102,109 @@ export function formatMarketMessage(market: Market): string {
   }
 
   return lines.join("\n");
+}
+
+export function formatMarketScoreMessage(market: Market, score: MarketScore): string {
+  const lines = [
+    `\u{1F3AF} ${market.question}`,
+    `Score: ${score.score}/100`,
+    formatMarketScoreConclusion(score.conclusion),
+    "",
+    "Причины:",
+  ];
+
+  if (score.reasons.length === 0) {
+    lines.push("- сильных причин пока нет");
+  } else {
+    for (const reason of score.reasons) {
+      lines.push(`- ${formatMarketScoreReason(reason)}`);
+    }
+  }
+
+  if (score.dataGaps.length > 0) {
+    lines.push("", "Чего не хватает:");
+    for (const gap of score.dataGaps) {
+      lines.push(`- ${formatMarketScoreDataGap(gap)}`);
+    }
+  }
+
+  lines.push("", `Slug: ${market.market_slug}`, `Condition id: ${market.condition_id}`);
+
+  return lines.join("\n");
+}
+
+function formatMarketScoreConclusion(conclusion: MarketScoreConclusionCode): string {
+  switch (conclusion) {
+    case "insufficient_data":
+      return "Недостаточно данных для уверенной оценки";
+    case "strong_watch":
+      return "Сильный рынок для наблюдения";
+    case "medium_watch":
+      return "Средний рынок: есть сигналы, но нужны проверки";
+    case "weak_signal":
+      return "Слабый рынок: сигналы пока неубедительны";
+  }
+}
+
+function formatMarketScoreReason(reason: MarketScoreReason): string {
+  switch (reason.code) {
+    case "tradable_status":
+      return "Статус: рынок открыт и принимает активность";
+    case "not_tradable_status":
+      return "Статус: рынок закрыт, неактивен или не принимает ордера";
+    case "valid_prices":
+      return "Цены: есть валидные цены исходов для сравнения";
+    case "high_volume24hr":
+      return `Объём: 24h volume около $${formatCurrency(Math.round(reason.value ?? 0))}`;
+    case "some_volume24hr":
+      return "Объём: есть ненулевой 24h volume, но он не выглядит сильным";
+    case "high_liquidity":
+      return `Ликвидность: liquidity около $${formatCurrency(Math.round(reason.value ?? 0))}`;
+    case "some_liquidity":
+      return "Ликвидность: ликвидность есть, но запас небольшой";
+  }
+}
+
+function formatMarketScoreDataGap(gap: MarketScoreDataGapCode): string {
+  switch (gap) {
+    case "not_tradable":
+      return "рынок закрыт, неактивен или не принимает ордера";
+    case "missing_prices":
+      return "нет валидных цен исходов";
+    case "missing_volume24hr":
+      return "нет заметного объёма 24h";
+    case "missing_liquidity":
+      return "нет заметной ликвидности";
+    case "missing_end_date":
+      return "нет даты закрытия";
+  }
+}
+
+export function formatMarketScoreChoicesMessage(markets: Market[]): string {
+  const lines = [
+    "\u{1F50E} Выбери рынок для оценки:",
+    "",
+  ];
+
+  for (const [index, market] of markets.entries()) {
+    lines.push(
+      `${index + 1}. ${truncateText(market.question, 78)}`,
+      `   Volume 24h: $${formatCurrency(market.volume24hr)} | slug: ${market.market_slug}`,
+      `   Оценить: /score ${index + 1} или /score ${market.market_slug}`,
+    );
+  }
+
+  lines.push("", "Можно также отправить /score <slug-or-condition_id>.");
+
+  return lines.join("\n");
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, maxLength - 3)}...`;
 }
 
 export function formatTopWalletsMessage(wallets: Wallet[]): string {

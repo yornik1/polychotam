@@ -50,6 +50,19 @@ export class MarketsService {
       .getMany();
   }
 
+  async getScoreCandidates(limit = 20): Promise<Market[]> {
+    return this.marketRepository
+      .createQueryBuilder("market")
+      .where("market.active = :active", { active: true })
+      .andWhere("market.closed = :closed", { closed: false })
+      .andWhere("market.accepting_orders = :acceptingOrders", { acceptingOrders: true })
+      .andWhere("market.volume24hr > :minVolume", { minVolume: 0 })
+      .andWhere("market.liquidity > :minLiquidity", { minLiquidity: 0 })
+      .orderBy("market.volume24hr", "DESC")
+      .limit(limit)
+      .getMany();
+  }
+
   async isTopMarket(conditionId: string, topLimit = 20): Promise<boolean> {
     const normalizedId = conditionId.trim();
     if (normalizedId.length === 0) {

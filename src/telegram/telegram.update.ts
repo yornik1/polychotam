@@ -1,5 +1,6 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Ctx, Command, Start, Update } from "nestjs-telegraf";
+import { MarketScoreService } from "../markets/market-score.service.js";
 import { MarketsService } from "../markets/markets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { WalletsService } from "../wallets/wallets.service.js";
@@ -15,6 +16,8 @@ import {
   formatAlertsStatusMessage,
   formatErrorsMessage,
   formatMarketMessage,
+  formatMarketScoreChoicesMessage,
+  formatMarketScoreMessage,
   formatQueuesMessage,
   formatSmartWhaleDetailMessage,
   formatSmartWhalesListMessage,
@@ -29,11 +32,17 @@ interface ReplyContext {
   reply(message: string, extra?: unknown): Promise<unknown> | unknown;
 }
 
+const SCORE_CHOICES_LIMIT = 5;
+const SCORE_CHOICE_PATTERN = /^[1-9]\d*$/u;
+
 @Injectable()
 @Update()
 export class TelegramUpdate {
+  private readonly logger = new Logger(TelegramUpdate.name);
+
   constructor(
     private readonly marketsService: MarketsService,
+    private readonly marketScoreService: MarketScoreService,
     private readonly walletsService: WalletsService,
     private readonly smartWalletsService: SmartWalletsService,
     private readonly queueStatsService: QueueStatsService,
@@ -66,6 +75,49 @@ export class TelegramUpdate {
     }
 
     await ctx.reply(formatMarketMessage(market));
+  }
+
+  @Command("score")
+  async handleScore(@Ctx() ctx: ReplyContext): Promise<void> {
+    const marketKey = ctx.payload?.trim() ?? "";
+    if (marketKey.length === 0) {
+      await this.replyWithScoreChoices(ctx);
+      return;
+    }
+
+    try {
+      const resolvedMarketKey = await this.resolveScoreMarketKey(marketKey);
+      if (resolvedMarketKey === null) {
+        await ctx.reply("Не вижу рынка под таким номером. Вызови /score и выбери номер из списка.");
+        return;
+      }
+
+      const market = await this.findMarketForScore(resolvedMarketKey);
+      if (market === null) {
+        await ctx.reply("Маркет не найден. Попробуй другой slug или condition id.");
+        return;
+      }
+
+      await ctx.reply(formatMarketScoreMessage(market, this.marketScoreService.scoreMarket(market)));
+    } catch (error: unknown) {
+      this.logger.warn(`Не удалось оценить рынок в Telegram: ${this.toErrorMessage(error)}`);
+      await ctx.reply("Не удалось оценить рынок. Попробуй позже.");
+    }
+  }
+
+  private async replyWithScoreChoices(ctx: ReplyContext): Promise<void> {
+    try {
+      const markets = await this.marketsService.getScoreCandidates(SCORE_CHOICES_LIMIT);
+      if (markets.length === 0) {
+        await ctx.reply("Пока нет рынков для выбора. Попробуй /score <slug-or-condition_id>.");
+        return;
+      }
+
+      await ctx.reply(formatMarketScoreChoicesMessage(markets));
+    } catch (error: unknown) {
+      this.logger.warn(`Не удалось получить рынки для Telegram score chooser: ${this.toErrorMessage(error)}`);
+      await ctx.reply("Не удалось получить список рынков. Попробуй /score <slug-or-condition_id>.");
+    }
   }
 
   @Command("top")
@@ -210,5 +262,27 @@ export class TelegramUpdate {
       }),
       { parse_mode: "HTML" },
     );
+  }
+
+  private async findMarketForScore(marketKey: string): Promise<Market | null> {
+    const bySlug = await this.marketsService.findBySlug(marketKey);
+    if (bySlug !== null) {
+      return bySlug;
+    }
+
+    return this.marketsService.findByConditionId(marketKey);
+  }
+
+  private async resolveScoreMarketKey(marketKey: string): Promise<string | null> {
+    if (!SCORE_CHOICE_PATTERN.test(marketKey)) {
+      return marketKey;
+    }
+
+    const scoreCandidates = await this.marketsService.getScoreCandidates(SCORE_CHOICES_LIMIT);
+    return scoreCandidates[Number(marketKey) - 1]?.market_slug ?? null;
+  }
+
+  private toErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : "неизвестная ошибка";
   }
 }

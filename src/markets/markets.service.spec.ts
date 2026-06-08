@@ -15,6 +15,7 @@ describe("MarketsService", () => {
     const findOne = vi.fn();
     const createQueryBuilder = vi.fn(() => ({
       where: vi.fn().mockReturnThis(),
+      andWhere: vi.fn().mockReturnThis(),
       orderBy: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       getMany: vi.fn().mockResolvedValue([]),
@@ -276,12 +277,14 @@ describe("MarketsService", () => {
     ] as Market[];
 
     const whereMock = vi.fn().mockReturnThis();
+    const andWhereMock = vi.fn().mockReturnThis();
     const orderByMock = vi.fn().mockReturnThis();
     const limitMock = vi.fn().mockReturnThis();
     const getManyMock = vi.fn().mockResolvedValue(mockMarkets);
 
     createQueryBuilder.mockReturnValue({
       where: whereMock,
+      andWhere: andWhereMock,
       orderBy: orderByMock,
       limit: limitMock,
       getMany: getManyMock,
@@ -296,6 +299,41 @@ describe("MarketsService", () => {
     expect(result).toEqual(mockMarkets);
   });
 
+  it("getScoreCandidates возвращает открытые рынки с данными для оценки", async () => {
+    const { service, createQueryBuilder } = createService();
+    const mockMarkets = [
+      { condition_id: "0xmarket1", active: true, closed: false, liquidity: 5000, volume24hr: 1000 },
+    ] as Market[];
+
+    const whereMock = vi.fn().mockReturnThis();
+    const andWhereMock = vi.fn().mockReturnThis();
+    const orderByMock = vi.fn().mockReturnThis();
+    const limitMock = vi.fn().mockReturnThis();
+    const getManyMock = vi.fn().mockResolvedValue(mockMarkets);
+
+    createQueryBuilder.mockReturnValue({
+      where: whereMock,
+      andWhere: andWhereMock,
+      orderBy: orderByMock,
+      limit: limitMock,
+      getMany: getManyMock,
+    });
+
+    const result = await service.getScoreCandidates(5);
+
+    expect(createQueryBuilder).toHaveBeenCalled();
+    expect(whereMock).toHaveBeenCalledWith("market.active = :active", { active: true });
+    expect(andWhereMock).toHaveBeenCalledWith("market.closed = :closed", { closed: false });
+    expect(andWhereMock).toHaveBeenCalledWith("market.accepting_orders = :acceptingOrders", {
+      acceptingOrders: true,
+    });
+    expect(andWhereMock).toHaveBeenCalledWith("market.volume24hr > :minVolume", { minVolume: 0 });
+    expect(andWhereMock).toHaveBeenCalledWith("market.liquidity > :minLiquidity", { minLiquidity: 0 });
+    expect(orderByMock).toHaveBeenCalledWith("market.volume24hr", "DESC");
+    expect(limitMock).toHaveBeenCalledWith(5);
+    expect(result).toEqual(mockMarkets);
+  });
+
   it("isTopMarket возвращает true, если condition_id в топ-20", async () => {
     const { service, createQueryBuilder } = createService();
     const mockMarkets = [
@@ -304,12 +342,14 @@ describe("MarketsService", () => {
     ] as Market[];
 
     const whereMock = vi.fn().mockReturnThis();
+    const andWhereMock = vi.fn().mockReturnThis();
     const orderByMock = vi.fn().mockReturnThis();
     const limitMock = vi.fn().mockReturnThis();
     const getManyMock = vi.fn().mockResolvedValue(mockMarkets);
 
     createQueryBuilder.mockReturnValue({
       where: whereMock,
+      andWhere: andWhereMock,
       orderBy: orderByMock,
       limit: limitMock,
       getMany: getManyMock,
@@ -328,12 +368,14 @@ describe("MarketsService", () => {
     ] as Market[];
 
     const whereMock = vi.fn().mockReturnThis();
+    const andWhereMock = vi.fn().mockReturnThis();
     const orderByMock = vi.fn().mockReturnThis();
     const limitMock = vi.fn().mockReturnThis();
     const getManyMock = vi.fn().mockResolvedValue(mockMarkets);
 
     createQueryBuilder.mockReturnValue({
       where: whereMock,
+      andWhere: andWhereMock,
       orderBy: orderByMock,
       limit: limitMock,
       getMany: getManyMock,
