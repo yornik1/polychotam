@@ -109,6 +109,7 @@ describe("TradesService.saveFromWsTradeEvent", () => {
       expect.objectContaining({
         status: "RECORDED_WS",
         side: "BUY",
+        trader_side: "TAKER",
         size: "219.217767",
         price: "0.456",
         asset_id: event.assetId,
@@ -215,6 +216,7 @@ describe("TradesService.saveFromWsTradeEvent", () => {
         transaction_hash:
           "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
         status: "MATCHED",
+        trader_side: "TAKER",
       }),
       ["trade_id"],
     );

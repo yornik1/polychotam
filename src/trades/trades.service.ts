@@ -80,7 +80,9 @@ export class TradesService {
       maker_address: wallet,
       maker_orders: [],
       transaction_hash: "",
-      trader_side: event.side,
+      // В live WS `last_trade_price` нет канонического trader_side (`TAKER`/`MAKER`),
+      // поэтому используем тот же безопасный fallback, что и в historical path.
+      trader_side: "TAKER",
     });
 
     await this.tradeRepository.save(trade);
