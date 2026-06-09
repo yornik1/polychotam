@@ -1,0 +1,194 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1781038586356,
+  "projectRoot": "/Users/mich/PycharmProjects/polychotam",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "@nestjs/core",
+        "version": "11.1.6",
+        "category": "backend"
+      },
+      {
+        "name": "vitest",
+        "version": "4.1.2",
+        "category": "testing"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": "npm test",
+    "lintCommand": "npm run lint",
+    "devCommand": "npm run start",
+    "scripts": {
+      "build": "nest build",
+      "start": "nest start",
+      "start:dev": "nest start --watch",
+      "start:prod": "node dist/main.js",
+      "smart-wallets:refresh": "nest build && node dist/refresh-smart-wallets.main.js",
+      "lint": "eslint \"src/**/*.ts\"",
+      "typecheck": "tsc --noEmit",
+      "typeorm": "typeorm-ts-node-commonjs",
+      "typeorm:js": "node ./node_modules/typeorm/cli.js",
+      "migration:create": "npm run typeorm migration:create --",
+      "migration:generate": "nest build && node ./node_modules/typeorm/cli.js migration:generate -d dist/data-source.js",
+      "migration:run": "nest build && npm run typeorm:js -- migration:run -d dist/data-source.js",
+      "migration:revert": "nest build && npm run typeorm:js -- migration:revert -d dist/data-source.js",
+      "test": "vitest run",
+      "test:coverage": "vitest run --coverage",
+      "test:watch": "vitest"
+    }
+  },
+  "conventions": {
+    "namingStyle": "camelCase/PascalCase",
+    "importStyle": "ES modules",
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts",
+      "src",
+      "test"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "coverage": {
+      "path": "coverage",
+      "purpose": null,
+      "fileCount": 9,
+      "lastAccessed": 1781038586350,
+      "keyFiles": [
+        "base.css",
+        "block-navigation.js",
+        "favicon.png",
+        "index.html",
+        "lcov.info"
+      ]
+    },
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 10,
+      "lastAccessed": 1781038586350,
+      "keyFiles": [
+        "app.controller.js",
+        "app.module.js",
+        "app.service.js",
+        "backfill-gamma-closed.main.js",
+        "data-source.js"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 1,
+      "lastAccessed": 1781038586352,
+      "keyFiles": [
+        "PROJECT_STRUCTURE.md"
+      ]
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1781038586353,
+      "keyFiles": [
+        "bull-job-errors.ndjson"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 0,
+      "lastAccessed": 1781038586353,
+      "keyFiles": []
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 10,
+      "lastAccessed": 1781038586353,
+      "keyFiles": [
+        "app.controller.ts",
+        "app.module.ts",
+        "app.service.ts",
+        "backfill-gamma-closed.main.ts",
+        "data-source.ts"
+      ]
+    },
+    "test": {
+      "path": "test",
+      "purpose": "Test files",
+      "fileCount": 1,
+      "lastAccessed": 1781038586353,
+      "keyFiles": [
+        "markets.e2e-spec.ts"
+      ]
+    },
+    "dist/config": {
+      "path": "dist/config",
+      "purpose": "Configuration files",
+      "fileCount": 3,
+      "lastAccessed": 1781038586353,
+      "keyFiles": [
+        "bullmq.config.js",
+        "env-files.js",
+        "typeorm.config.js"
+      ]
+    },
+    "dist/migrations": {
+      "path": "dist/migrations",
+      "purpose": "Database migrations",
+      "fileCount": 10,
+      "lastAccessed": 1781038586353,
+      "keyFiles": [
+        "1775052800148-Initial.js",
+        "1775052800149-PolymarketCoreEntities.js",
+        "1775833920000-AddTradeIdToTrades.js"
+      ]
+    },
+    "src/config": {
+      "path": "src/config",
+      "purpose": "Configuration files",
+      "fileCount": 5,
+      "lastAccessed": 1781038586354,
+      "keyFiles": [
+        "bullmq.config.ts",
+        "env-files.spec.ts",
+        "env-files.ts"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

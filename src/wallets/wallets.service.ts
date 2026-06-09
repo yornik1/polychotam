@@ -9,6 +9,10 @@ import type {
 } from "../types/contracts.js";
 import { Trade } from "../trades/trade.entity.js";
 import { Wallet } from "./wallet.entity.js";
+import {
+  calculateResolvedTradePnl,
+  type ResolvedTradePnlOutcome,
+} from "./wallet-pnl.util.js";
 
 const TOP_WALLETS_CACHE_TTL_MS = 60_000;
 const WALLET_PNL_LIMITATIONS = [
@@ -18,12 +22,6 @@ const WALLET_PNL_LIMITATIONS = [
   "This is not full on-chain wallet P&L.",
   "ROI is calculated from totalRisk, not from volume.",
 ];
-
-interface TradePnlResult {
-  pnl: number;
-  risk: number;
-  isWinningTrade: boolean;
-}
 
 @Injectable()
 export class WalletsService {
@@ -149,7 +147,7 @@ export class WalletsService {
         continue;
       }
 
-      const tradePnl = this.calculateTradePnl(trade, winningTokenId);
+      const tradePnl: ResolvedTradePnlOutcome = calculateResolvedTradePnl(trade, winningTokenId);
       if (tradePnl === "invalid_numeric") {
         skippedTradeCount += 1;
         dataGaps.add("invalid_numeric_trade_values");
@@ -282,38 +280,6 @@ export class WalletsService {
     }
 
     return value.toFixed(6);
-  }
-
-  private calculateTradePnl(
-    trade: Trade,
-    winningTokenId: string,
-  ): TradePnlResult | "invalid_numeric" | "unsupported_side" {
-    const size = Number(trade.size);
-    const price = Number(trade.price);
-    if (!Number.isFinite(size) || !Number.isFinite(price) || size < 0 || price < 0 || price > 1) {
-      return "invalid_numeric";
-    }
-
-    const isWinningToken = trade.asset_id === winningTokenId;
-    const side = trade.side.toUpperCase();
-
-    if (side === "BUY") {
-      return {
-        pnl: isWinningToken ? size * (1 - price) : -(size * price),
-        risk: size * price,
-        isWinningTrade: isWinningToken,
-      };
-    }
-
-    if (side === "SELL") {
-      return {
-        pnl: isWinningToken ? -(size * (1 - price)) : size * price,
-        risk: size * (1 - price),
-        isWinningTrade: !isWinningToken,
-      };
-    }
-
-    return "unsupported_side";
   }
 
   private roundMetric(value: number): number {

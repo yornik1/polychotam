@@ -27,6 +27,17 @@ describe("TelegramUpdate", () => {
     const getTopWalletsByVolumeOnTopMarkets = vi.fn<
       () => Promise<Array<{ address: string; totalVolume: string; tradeCount: number }>>
     >();
+    const getActiveWhitelist = vi.fn<() => Promise<Array<{
+      address: string;
+      active: boolean;
+      hit_rate: string | null;
+      sum_pnl: string | null;
+      roi_pct: string | null;
+      whale_trade_count: number;
+      notes: string;
+      source: string;
+    }>>>();
+    const getWalletDetail = vi.fn<(address: string) => Promise<unknown>>();
     const getHistoricalPnl = vi.fn<(address: string) => Promise<WalletPnlSummary>>();
     const isAlertsEnabled = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
     const setAlertsEnabled = vi.fn<(v: boolean) => Promise<void>>().mockResolvedValue(undefined);
@@ -48,7 +59,7 @@ describe("TelegramUpdate", () => {
       { findBySlug, findByConditionId, getScoreCandidates } as unknown as MarketsService,
       { scoreMarket } as unknown as MarketScoreService,
       { getTopWalletsByVolumeOnTopMarkets, getHistoricalPnl } as unknown as WalletsService,
-      {} as unknown as SmartWalletsService,
+      { getActiveWhitelist, getWalletDetail } as unknown as SmartWalletsService,
       queueStatsService as unknown as QueueStatsService,
       wsStatusService as unknown as PolymarketWsStatusService,
       {} as unknown as Repository<Trade>,
@@ -64,6 +75,8 @@ describe("TelegramUpdate", () => {
       getScoreCandidates,
       scoreMarket,
       getTopWalletsByVolumeOnTopMarkets,
+      getActiveWhitelist,
+      getWalletDetail,
       getHistoricalPnl,
       alertSettingsService,
       wsUptimeService,
@@ -415,6 +428,31 @@ describe("TelegramUpdate", () => {
     expect(reply).toHaveBeenCalledWith(
       expect.stringContaining("150 trades"),
       expect.objectContaining({ parse_mode: "HTML" }),
+    );
+  });
+
+  it("отвечает smart whale whitelist для /whales", async () => {
+    const { update, getActiveWhitelist } = createUpdate();
+    const reply = vi.fn<(message: string, extra?: unknown) => void>();
+    getActiveWhitelist.mockResolvedValue([
+      {
+        address: "0xabcdef1234567890",
+        active: true,
+        hit_rate: "0.650000",
+        sum_pnl: "1234.56",
+        roi_pct: "12.3000",
+        whale_trade_count: 42,
+        notes: "auto: score=1",
+        source: "auto_scoring",
+      },
+    ]);
+
+    await update.handleWhales({ reply } as ReplyContext);
+
+    expect(getActiveWhitelist).toHaveBeenCalledTimes(1);
+    expect(reply).toHaveBeenCalledWith(
+      expect.stringContaining("Smart Whale Whitelist"),
+      expect.objectContaining({ parse_mode: "HTML", disable_web_page_preview: true }),
     );
   });
 

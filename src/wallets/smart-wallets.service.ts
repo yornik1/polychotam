@@ -1,8 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
-import { SmartWallet } from "./smart-wallet.entity.js";
+import { In, Repository } from "typeorm";
 import { Trade } from "../trades/trade.entity.js";
+import {
+  calculateResolvedTradePnl,
+  type ResolvedTradePnlOutcome,
+} from "./wallet-pnl.util.js";
+import { SmartWallet } from "./smart-wallet.entity.js";
 
 export interface SmartWalletStats {
   address: string;
@@ -26,10 +30,67 @@ export interface SmartWalletDetail extends SmartWalletStats {
   }>;
 }
 
+export interface SmartWalletRefreshOptions {
+  dryRun?: boolean;
+  freshnessDays?: number;
+  minResolvedTrades?: number;
+  minWinRate?: number;
+  minTotalRisk?: number;
+  minSelectedForDeactivation?: number;
+  limit?: number;
+}
+
+export interface SmartWalletRefreshThresholds {
+  freshnessDays: number;
+  minResolvedTrades: number;
+  minWinRate: number;
+  minTotalRisk: number;
+  minSelectedForDeactivation: number;
+  limit: number;
+}
+
+export interface SmartWalletRefreshSkippedEntry {
+  address: string;
+  reason: string;
+}
+
+export interface SmartWalletRefreshResult {
+  dryRun: boolean;
+  selected: SmartWalletStats[];
+  deactivated: string[];
+  skipped: SmartWalletRefreshSkippedEntry[];
+  dataGaps: string[];
+  thresholds: SmartWalletRefreshThresholds;
+}
+
 interface SmartWhaleWhitelistCache {
   expiresAt: number;
   addresses: Set<string>;
   statsByAddress: Map<string, SmartWalletStats>;
+}
+
+interface SmartWalletTradeDetailRow {
+  market_question: string | null;
+  side: string | null;
+  size: string | null;
+  price: string | null;
+  match_time: Date;
+  winning_token_id: string | null;
+  asset_id: string | null;
+}
+
+interface SmartWalletAggregate {
+  address: string;
+  sumPnl: number;
+  totalRisk: number;
+  resolvedTradeCount: number;
+  winningTradeCount: number;
+  lastTradeAt: Date;
+  score: number;
+}
+
+interface SmartWalletRefreshRow extends SmartWalletStats {
+  internal_updated_at: Date;
 }
 
 @Injectable()
@@ -43,6 +104,67 @@ export class SmartWalletsService {
     @InjectRepository(Trade)
     private readonly tradeRepository: Repository<Trade>,
   ) {}
+
+  async refreshSmartWallets(
+    options: SmartWalletRefreshOptions = {},
+  ): Promise<SmartWalletRefreshResult> {
+    const thresholds = this.resolveRefreshThresholds(options);
+    const now = new Date();
+    const freshnessCutoff = new Date(
+      now.getTime() - thresholds.freshnessDays * 24 * 60 * 60 * 1000,
+    );
+
+    const trades = await this.tradeRepository.find({
+      relations: { market: true },
+      order: { match_time: "ASC" },
+    });
+
+    const dataGaps = new Set<string>();
+    const aggregates = this.aggregateSmartWalletCandidates(trades, freshnessCutoff, dataGaps);
+    const { selectedCandidates, skipped } = this.selectSmartWalletCandidates(
+      aggregates,
+      thresholds,
+      now,
+    );
+    const selectedRows = selectedCandidates.map((candidate) =>
+      this.mapCandidateToWallet(candidate, now),
+    );
+    const selectedStats = selectedRows.map(({ internal_updated_at: _internalUpdatedAt, ...row }) => row);
+
+    const existingActiveWallets = await this.smartWalletRepository.find({
+      where: { active: true },
+    });
+    const deactivated = this.resolveDeactivations(
+      existingActiveWallets,
+      new Set(selectedStats.map((wallet) => wallet.address.toLowerCase())),
+      selectedStats.length,
+      thresholds.minSelectedForDeactivation,
+    );
+
+    if (options.dryRun !== true) {
+      await this.smartWalletRepository.manager.transaction(async (manager) => {
+        const walletRepository = manager.getRepository(SmartWallet);
+        if (selectedRows.length > 0) {
+          await walletRepository.upsert(selectedRows, ["address"]);
+        }
+        if (deactivated.length > 0) {
+          await walletRepository.update({ address: In(deactivated) }, { active: false });
+        }
+      });
+      if (selectedRows.length > 0 || deactivated.length > 0) {
+        this.invalidateCache();
+      }
+    }
+
+    return {
+      dryRun: options.dryRun === true,
+      selected: selectedStats,
+      deactivated,
+      skipped,
+      dataGaps: Array.from(dataGaps),
+      thresholds,
+    };
+  }
 
   /** Проверка: является ли адрес smart whale (для алертов). */
   async isSmartWhale(address: string): Promise<boolean> {
@@ -180,19 +302,20 @@ export class SmartWalletsService {
       .limit(10)
       .getRawMany();
 
-    const recentTrades = trades.map((row) => {
+    const recentTrades = trades.map((row: SmartWalletTradeDetailRow) => {
       let pnl: number | null = null;
       if (row.winning_token_id) {
-        const size = Number(row.size);
-        const price = Number(row.price);
-        const side = (row.side ?? "").toUpperCase();
-        const isWin = row.asset_id === row.winning_token_id;
-        if (Number.isFinite(size) && Number.isFinite(price)) {
-          if (side === "BUY") {
-            pnl = isWin ? size * (1 - price) : -size * price;
-          } else if (side === "SELL") {
-            pnl = isWin ? -size * (1 - price) : size * price;
-          }
+        const tradePnl: ResolvedTradePnlOutcome = calculateResolvedTradePnl(
+          {
+            asset_id: row.asset_id ?? "",
+            side: row.side ?? "",
+            size: row.size ?? "0",
+            price: row.price ?? "0",
+          },
+          row.winning_token_id,
+        );
+        if (tradePnl !== "invalid_numeric" && tradePnl !== "unsupported_side") {
+          pnl = tradePnl.pnl;
         }
       }
       return {
@@ -216,5 +339,300 @@ export class SmartWalletsService {
       source: wallet.source,
       recentTrades,
     };
+  }
+
+  private resolveRefreshThresholds(
+    options: SmartWalletRefreshOptions,
+  ): SmartWalletRefreshThresholds {
+    return {
+      freshnessDays: this.normalizePositiveInt(options.freshnessDays, 90),
+      minResolvedTrades: this.normalizePositiveInt(options.minResolvedTrades, 10),
+      minWinRate: this.normalizePositiveNumber(options.minWinRate, 0.6),
+      minTotalRisk: this.normalizePositiveNumber(options.minTotalRisk, 1000),
+      minSelectedForDeactivation: this.normalizePositiveInt(
+        options.minSelectedForDeactivation,
+        2,
+      ),
+      limit: this.normalizePositiveInt(options.limit, 20),
+    };
+  }
+
+  private aggregateSmartWalletCandidates(
+    trades: readonly Trade[],
+    freshnessCutoff: Date,
+    dataGaps: Set<string>,
+  ): Map<string, SmartWalletAggregate> {
+    const aggregates = new Map<string, SmartWalletAggregate>();
+
+    for (const trade of trades) {
+      const address = this.normalizeAddress(trade.maker_address);
+      if (address.length === 0 || address === "unknown") {
+        dataGaps.add("unknown_maker_address");
+        continue;
+      }
+
+      const market = trade.market;
+      const winningTokenId = market?.winning_token_id;
+      if (market?.closed !== true || winningTokenId === null || winningTokenId.trim().length === 0) {
+        dataGaps.add("unresolved_markets_excluded");
+        continue;
+      }
+
+      if (trade.match_time < freshnessCutoff) {
+        dataGaps.add("outside_freshness_window");
+        continue;
+      }
+
+      const tradePnl = calculateResolvedTradePnl(
+        {
+          asset_id: trade.asset_id,
+          side: trade.side,
+          size: trade.size,
+          price: trade.price,
+        },
+        winningTokenId,
+      );
+
+      if (tradePnl === "invalid_numeric") {
+        dataGaps.add("invalid_numeric_trade_values");
+        continue;
+      }
+      if (tradePnl === "unsupported_side") {
+        dataGaps.add("unsupported_trade_side");
+        continue;
+      }
+
+      const aggregate = aggregates.get(address) ?? {
+        address,
+        sumPnl: 0,
+        totalRisk: 0,
+        resolvedTradeCount: 0,
+        winningTradeCount: 0,
+        lastTradeAt: trade.match_time,
+        score: 0,
+      };
+
+      aggregate.sumPnl += tradePnl.pnl;
+      aggregate.totalRisk += tradePnl.risk;
+      aggregate.resolvedTradeCount += 1;
+      if (tradePnl.isWinningTrade) {
+        aggregate.winningTradeCount += 1;
+      }
+      if (trade.match_time > aggregate.lastTradeAt) {
+        aggregate.lastTradeAt = trade.match_time;
+      }
+      aggregates.set(address, aggregate);
+    }
+
+    if (aggregates.size === 0) {
+      dataGaps.add("no_resolved_trades");
+    }
+
+    return aggregates;
+  }
+
+  private selectSmartWalletCandidates(
+    aggregates: ReadonlyMap<string, SmartWalletAggregate>,
+    thresholds: SmartWalletRefreshThresholds,
+    now: Date,
+  ): {
+    selectedCandidates: SmartWalletAggregate[];
+    skipped: SmartWalletRefreshSkippedEntry[];
+  } {
+    const selectedCandidates: SmartWalletAggregate[] = [];
+    const skipped: SmartWalletRefreshSkippedEntry[] = [];
+
+    for (const aggregate of aggregates.values()) {
+      const winRate =
+        aggregate.resolvedTradeCount > 0
+          ? aggregate.winningTradeCount / aggregate.resolvedTradeCount
+          : 0;
+      const roiPct = aggregate.totalRisk > 0 ? (aggregate.sumPnl / aggregate.totalRisk) * 100 : 0;
+      const score = this.calculateSmartWalletScore(aggregate, winRate, roiPct, now);
+
+      aggregate.score = score;
+
+      const skipReasons = this.buildSkipReasons(aggregate, thresholds, winRate);
+      if (skipReasons.length > 0) {
+        skipped.push({
+          address: aggregate.address,
+          reason: skipReasons.join(", "),
+        });
+        continue;
+      }
+
+      selectedCandidates.push(aggregate);
+    }
+
+    selectedCandidates.sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      if (right.sumPnl !== left.sumPnl) {
+        return right.sumPnl - left.sumPnl;
+      }
+      if (right.resolvedTradeCount !== left.resolvedTradeCount) {
+        return right.resolvedTradeCount - left.resolvedTradeCount;
+      }
+      if (right.lastTradeAt.getTime() !== left.lastTradeAt.getTime()) {
+        return right.lastTradeAt.getTime() - left.lastTradeAt.getTime();
+      }
+      return left.address.localeCompare(right.address);
+    });
+
+    const limited = selectedCandidates.slice(0, thresholds.limit);
+    for (const aggregate of selectedCandidates.slice(thresholds.limit)) {
+      skipped.push({
+        address: aggregate.address,
+        reason: "limit_reached",
+      });
+    }
+
+    return {
+      selectedCandidates: limited,
+      skipped,
+    };
+  }
+
+  private buildSkipReasons(
+    aggregate: SmartWalletAggregate,
+    thresholds: SmartWalletRefreshThresholds,
+    winRate: number,
+  ): string[] {
+    const reasons: string[] = [];
+    if (aggregate.resolvedTradeCount < thresholds.minResolvedTrades) {
+      reasons.push(`resolved<${thresholds.minResolvedTrades}`);
+    }
+    if (aggregate.sumPnl <= 0) {
+      reasons.push("pnl<=0");
+    }
+    if (winRate < thresholds.minWinRate) {
+      reasons.push(`winRate<${thresholds.minWinRate}`);
+    }
+    if (aggregate.totalRisk < thresholds.minTotalRisk) {
+      reasons.push(`risk<${thresholds.minTotalRisk}`);
+    }
+    return reasons;
+  }
+
+  private resolveDeactivations(
+    existingActiveWallets: readonly SmartWallet[],
+    selectedAddresses: ReadonlySet<string>,
+    selectedCount: number,
+    minSelectedForDeactivation: number,
+  ): string[] {
+    if (selectedCount < minSelectedForDeactivation) {
+      return [];
+    }
+
+    const deactivated: string[] = [];
+    for (const wallet of existingActiveWallets) {
+      if (wallet.source !== "auto_scoring" && wallet.source !== "research") {
+        continue;
+      }
+      const normalized = this.normalizeAddress(wallet.address);
+      if (!selectedAddresses.has(normalized)) {
+        deactivated.push(wallet.address.trim());
+      }
+    }
+    return deactivated;
+  }
+
+  private mapCandidateToWallet(
+    aggregate: SmartWalletAggregate,
+    now: Date,
+  ): SmartWalletRefreshRow {
+    const winRate =
+      aggregate.resolvedTradeCount > 0
+        ? aggregate.winningTradeCount / aggregate.resolvedTradeCount
+        : 0;
+    const roiPct = aggregate.totalRisk > 0 ? (aggregate.sumPnl / aggregate.totalRisk) * 100 : 0;
+
+    return {
+      address: aggregate.address,
+      active: true,
+      hit_rate: this.formatPercent(winRate, 6),
+      sum_pnl: this.formatMoney(aggregate.sumPnl),
+      roi_pct: this.formatPercent(roiPct, 4),
+      whale_trade_count: aggregate.resolvedTradeCount,
+      notes: this.buildRefreshNotes(aggregate, winRate, roiPct),
+      source: "auto_scoring",
+      internal_updated_at: now,
+    };
+  }
+
+  private buildRefreshNotes(
+    aggregate: SmartWalletAggregate,
+    winRate: number,
+    roiPct: number,
+  ): string {
+    return [
+      "auto:",
+      `score=${aggregate.score.toFixed(4)}`,
+      `pnl=${this.formatMoney(aggregate.sumPnl)}`,
+      `roi=${this.formatPercent(roiPct, 4)}%`,
+      `hr=${this.formatPercent(winRate * 100, 4)}%`,
+      `resolved=${aggregate.resolvedTradeCount}`,
+      `risk=${this.formatMoney(aggregate.totalRisk)}`,
+      `last=${aggregate.lastTradeAt.toISOString().slice(0, 10)}`,
+    ].join(" ");
+  }
+
+  private calculateSmartWalletScore(
+    aggregate: SmartWalletAggregate,
+    winRate: number,
+    roiPct: number,
+    now: Date,
+  ): number {
+    const ageDays = Math.max(
+      0,
+      Math.floor((now.getTime() - aggregate.lastTradeAt.getTime()) / (24 * 60 * 60 * 1000)),
+    );
+    const recencyBonus = Math.max(0, 100 - ageDays);
+    return Number(
+      (
+        aggregate.sumPnl +
+        roiPct +
+        winRate * 100 +
+        aggregate.resolvedTradeCount +
+        recencyBonus
+      ).toFixed(4),
+    );
+  }
+
+  private formatMoney(value: number): string {
+    if (!Number.isFinite(value)) {
+      return "0";
+    }
+
+    return (Math.round(value * 100) / 100).toString();
+  }
+
+  private formatPercent(value: number, digits: number): string {
+    if (!Number.isFinite(value)) {
+      return "0".padEnd(digits > 0 ? digits + 2 : 1, "0");
+    }
+
+    return value.toFixed(digits);
+  }
+
+  private normalizePositiveInt(value: number | undefined, fallback: number): number {
+    if (value === undefined || !Number.isFinite(value) || value <= 0) {
+      return fallback;
+    }
+
+    return Math.floor(value);
+  }
+
+  private normalizePositiveNumber(value: number | undefined, fallback: number): number {
+    if (value === undefined || !Number.isFinite(value) || value <= 0) {
+      return fallback;
+    }
+
+    return value;
+  }
+
+  private normalizeAddress(address: string): string {
+    return address.trim().toLowerCase();
   }
 }
