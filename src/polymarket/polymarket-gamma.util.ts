@@ -109,9 +109,11 @@ export function deriveWinningTokenIdFromGamma(market: GammaMarketRaw): string | 
 export function buildTokensJsonFromGamma(market: GammaMarketRaw): Record<string, unknown>[] {
   const ids = parseClobTokenIdsFromGamma(market.clobTokenIds);
   const outcomes = parseStringArrayField(market.outcomes);
+  const prices = parseStringArrayField(market.outcomePrices);
   return ids.map((token_id, i) => ({
     token_id,
     outcome: outcomes[i] ?? "",
+    price: prices[i] ?? "",
   }));
 }
 

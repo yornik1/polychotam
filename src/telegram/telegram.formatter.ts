@@ -34,7 +34,7 @@ function formatOdds(tokens: MarketTokenLike[]): string | null {
         return null;
       }
 
-      return `${outcome} ${price.toFixed(2)}`;
+      return `${outcome} ${formatProbability(price)}`;
     })
     .filter((part): part is string => part !== null);
 
@@ -43,6 +43,11 @@ function formatOdds(tokens: MarketTokenLike[]): string | null {
   }
 
   return parts.join(" / ");
+}
+
+function formatProbability(price: number): string {
+  const percent = price * 100;
+  return `${percent >= 1 ? percent.toFixed(0) : percent.toFixed(1)}%`;
 }
 
 function formatWalletAddress(address: string): string {
@@ -105,13 +110,17 @@ export function formatMarketMessage(market: Market): string {
 }
 
 export function formatMarketScoreMessage(market: Market, score: MarketScore): string {
+  const odds = formatOdds(asMarketTokens(market.tokens));
   const lines = [
     `\u{1F3AF} ${market.question}`,
     `Score: ${score.score}/100`,
-    formatMarketScoreConclusion(score.conclusion),
-    "",
-    "Причины:",
   ];
+
+  if (odds !== null) {
+    lines.push(`Odds: ${odds}`);
+  }
+
+  lines.push(formatMarketScoreConclusion(score.conclusion), "", "Причины:");
 
   if (score.reasons.length === 0) {
     lines.push("- сильных причин пока нет");

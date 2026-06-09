@@ -209,6 +209,17 @@ describe("MarketSyncService", () => {
 
     expect(newly).toEqual(["0xg"]);
     expect(upsert).toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          tokens: [
+            { token_id: "tok-a", outcome: "Yes", price: "1" },
+            { token_id: "tok-b", outcome: "No", price: "0" },
+          ],
+        }),
+      ],
+      ["condition_id"],
+    );
   });
 
   it("upsertGammaMarketsAndCollectNewlyResolved пустой массив если winner уже был в БД", async () => {

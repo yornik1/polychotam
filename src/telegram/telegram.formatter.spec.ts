@@ -37,12 +37,17 @@ describe("telegram formatter", () => {
         question: "Will BTC hit $100k?",
         market_slug: "btc-100k",
         condition_id: "condition-1",
+        tokens: [
+          { outcome: "Yes", price: "0.62" },
+          { outcome: "No", price: "0.38" },
+        ],
       } as Market,
       score,
     );
 
     expect(message).toContain("Will BTC hit $100k?");
     expect(message).toContain("Score: 82/100");
+    expect(message).toContain("Odds: Yes 62% / No 38%");
     expect(message).toContain("Сильный рынок");
     expect(message).toContain("Объём");
     expect(message).toContain("btc-100k");
@@ -77,6 +82,10 @@ describe("telegram formatter", () => {
         question: "Will BTC hit $100k?",
         market_slug: "btc-100k",
         condition_id: "condition-1",
+        tokens: [
+          { outcome: "YES", price: "0.62" },
+          { outcome: "NO", price: "0.38" },
+        ],
         volume24hr: 250_000,
       } as Market,
       {
@@ -108,8 +117,8 @@ describe("telegram formatter", () => {
     const message = formatMarketMessage(market);
 
     expect(message).toContain("Trump wins 2024");
-    expect(message).toContain("YES 0.72");
-    expect(message).toContain("NO 0.28");
+    expect(message).toContain("YES 72%");
+    expect(message).toContain("NO 28%");
     expect(message).toContain("$1,250,000");
     expect(message).toContain("2024-11-05");
   });
