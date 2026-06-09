@@ -12,6 +12,7 @@ import { QueueStatsService } from "../queue/queue-stats.service.js";
 import { PolymarketWsStatusService } from "../polymarket/polymarket-ws-status.service.js";
 import { AlertSettingsService } from "../settings/alert-settings.service.js";
 import { WsUptimeService } from "../polymarket/ws-uptime.service.js";
+import { resolveWalletPnlPeriod } from "../wallets/wallet-pnl-period.util.js";
 import {
   formatAlertsStatusMessage,
   formatErrorsMessage,
@@ -24,6 +25,7 @@ import {
   formatStartMessage,
   formatStatsMessage,
   formatTopWhalesMessage,
+  formatWalletPnlMessage,
   formatWsStatusMessage,
 } from "./telegram.formatter.js";
 
@@ -157,6 +159,33 @@ export class TelegramUpdate {
     }
 
     await ctx.reply(formatSmartWhaleDetailMessage(detail), {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+  }
+
+  @Command("pnl")
+  async handlePnl(@Ctx() ctx: ReplyContext): Promise<void> {
+    const raw = ctx.payload?.trim() ?? "";
+    if (raw.length === 0) {
+      await ctx.reply("Укажи адрес: /pnl <0xADDR> [days]");
+      return;
+    }
+
+    const [addressRaw, daysRaw] = raw.split(/\s+/u);
+    const address = addressRaw?.trim() ?? "";
+    if (address.length === 0) {
+      await ctx.reply("Укажи адрес: /pnl <0xADDR> [days]");
+      return;
+    }
+
+    const period = resolveWalletPnlPeriod(daysRaw);
+    const summary = await this.walletsService.getHistoricalPnl(address, {
+      days: period.days,
+      from: period.from,
+    });
+
+    await ctx.reply(formatWalletPnlMessage(summary), {
       parse_mode: "HTML",
       disable_web_page_preview: true,
     });

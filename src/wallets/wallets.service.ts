@@ -1,11 +1,29 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import type { WalletUpsertInput } from "../types/contracts.js";
+import type {
+  WalletPnlDataGapCode,
+  WalletPnlQueryOptions,
+  WalletPnlSummary,
+  WalletUpsertInput,
+} from "../types/contracts.js";
 import { Trade } from "../trades/trade.entity.js";
 import { Wallet } from "./wallet.entity.js";
 
 const TOP_WALLETS_CACHE_TTL_MS = 60_000;
+const WALLET_PNL_LIMITATIONS = [
+  "Only local trades stored in this database are included.",
+  "Only resolved markets with winning_token_id are included.",
+  "Only maker_address matches are included; owner/taker identity is not expanded.",
+  "This is not full on-chain wallet P&L.",
+  "ROI is calculated from totalRisk, not from volume.",
+];
+
+interface TradePnlResult {
+  pnl: number;
+  risk: number;
+  isWinningTrade: boolean;
+}
 
 @Injectable()
 export class WalletsService {
@@ -89,6 +107,91 @@ export class WalletsService {
       win_rate: this.formatRate(resolvedTrades === 0 ? 0 : winningTrades / resolvedTrades),
       trade_count: resolvedTrades,
     });
+  }
+
+  async getHistoricalPnl(
+    address: string,
+    options: WalletPnlQueryOptions = {},
+  ): Promise<WalletPnlSummary> {
+    const normalizedAddress = address.trim();
+    const normalizedAddressKey = normalizedAddress.toLowerCase();
+    const trades = await this.tradeRepository
+      .createQueryBuilder("trade")
+      .leftJoinAndSelect("trade.market", "market")
+      .where("LOWER(trade.maker_address) = :address", { address: normalizedAddressKey })
+      .orderBy("trade.match_time", "ASC")
+      .getMany();
+
+    let totalPnl = 0;
+    let totalRisk = 0;
+    let winningTrades = 0;
+    let includedTradeCount = 0;
+    let skippedTradeCount = 0;
+    const dataGaps = new Set<WalletPnlDataGapCode>();
+
+    for (const trade of trades) {
+      if (options.from !== undefined && trade.match_time < options.from) {
+        skippedTradeCount += 1;
+        dataGaps.add("outside_period_excluded");
+        continue;
+      }
+
+      if (trade.maker_address.trim().toLowerCase() !== normalizedAddressKey) {
+        skippedTradeCount += 1;
+        dataGaps.add("maker_address_only");
+        continue;
+      }
+
+      const winningTokenId = trade.market?.winning_token_id;
+      if (trade.market?.closed !== true || winningTokenId === null) {
+        skippedTradeCount += 1;
+        dataGaps.add("unresolved_markets_excluded");
+        continue;
+      }
+
+      const tradePnl = this.calculateTradePnl(trade, winningTokenId);
+      if (tradePnl === "invalid_numeric") {
+        skippedTradeCount += 1;
+        dataGaps.add("invalid_numeric_trade_values");
+        continue;
+      }
+      if (tradePnl === "unsupported_side") {
+        skippedTradeCount += 1;
+        dataGaps.add("unsupported_trade_side");
+        continue;
+      }
+
+      totalPnl += tradePnl.pnl;
+      totalRisk += tradePnl.risk;
+      includedTradeCount += 1;
+      if (tradePnl.isWinningTrade) {
+        winningTrades += 1;
+      }
+    }
+
+    if (includedTradeCount === 0) {
+      dataGaps.add("no_resolved_trades");
+    }
+    if (totalRisk === 0) {
+      dataGaps.add("zero_risk_basis");
+    }
+
+    return {
+      address: normalizedAddress,
+      method: "resolved_only_local_trades",
+      period: {
+        from: options.from?.toISOString() ?? null,
+        days: options.days ?? null,
+      },
+      totalPnl: this.roundMetric(totalPnl),
+      totalRisk: this.roundMetric(totalRisk),
+      roi: totalRisk > 0 ? this.roundMetric(totalPnl / totalRisk) : null,
+      winRate: includedTradeCount > 0 ? this.roundMetric(winningTrades / includedTradeCount) : null,
+      includedTradeCount,
+      skippedTradeCount,
+      dataGaps: Array.from(dataGaps),
+      limitations: WALLET_PNL_LIMITATIONS,
+    };
   }
 
   async getTopWallets(limit = 10): Promise<Wallet[]> {
@@ -179,5 +282,45 @@ export class WalletsService {
     }
 
     return value.toFixed(6);
+  }
+
+  private calculateTradePnl(
+    trade: Trade,
+    winningTokenId: string,
+  ): TradePnlResult | "invalid_numeric" | "unsupported_side" {
+    const size = Number(trade.size);
+    const price = Number(trade.price);
+    if (!Number.isFinite(size) || !Number.isFinite(price) || size < 0 || price < 0 || price > 1) {
+      return "invalid_numeric";
+    }
+
+    const isWinningToken = trade.asset_id === winningTokenId;
+    const side = trade.side.toUpperCase();
+
+    if (side === "BUY") {
+      return {
+        pnl: isWinningToken ? size * (1 - price) : -(size * price),
+        risk: size * price,
+        isWinningTrade: isWinningToken,
+      };
+    }
+
+    if (side === "SELL") {
+      return {
+        pnl: isWinningToken ? -(size * (1 - price)) : size * price,
+        risk: size * (1 - price),
+        isWinningTrade: !isWinningToken,
+      };
+    }
+
+    return "unsupported_side";
+  }
+
+  private roundMetric(value: number): number {
+    if (!Number.isFinite(value) || value === 0) {
+      return 0;
+    }
+
+    return Number(value.toFixed(6));
   }
 }

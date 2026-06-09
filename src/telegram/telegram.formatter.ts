@@ -5,6 +5,7 @@ import type {
   MarketScoreConclusionCode,
   MarketScoreDataGapCode,
   MarketScoreReason,
+  WalletPnlSummary,
 } from "../types/contracts.js";
 import type { SmartWalletStats, SmartWalletDetail } from "../wallets/smart-wallets.service.js";
 
@@ -74,6 +75,7 @@ export function formatStartMessage(): string {
     "Команды:",
     "/whales — smart whale whitelist",
     "/whale &lt;addr&gt; — детали кошелька",
+    "/pnl &lt;addr&gt; [days] — local resolved-only P&amp;L estimate",
     "/market &lt;slug&gt; — инфо по маркету",
     "/score &lt;slug-or-id&gt; — оценка рынка",
     "/top — топ по объёму (все киты)",
@@ -227,6 +229,54 @@ export function formatTopWalletsMessage(wallets: Wallet[]): string {
   }
 
   return lines.join("\n");
+}
+
+export function formatWalletPnlMessage(summary: WalletPnlSummary): string {
+  const lines = [
+    "\u{1F4CA} <b>Wallet P&amp;L estimate</b>",
+    `Wallet: ${escapeHtml(formatWalletAddress(summary.address))}`,
+    `Period: ${summary.period.days ?? "n/a"} days`,
+    `Total P&amp;L: ${formatSignedCurrency(summary.totalPnl)}`,
+    `ROI: ${formatNullablePercent(summary.roi)}`,
+    `Win rate: ${formatNullablePercent(summary.winRate)}`,
+    `Included trades: ${summary.includedTradeCount}`,
+    `Skipped trades: ${summary.skippedTradeCount}`,
+    `Method: ${escapeHtml(summary.method)}`,
+    "Scope: local resolved-only estimate, not full on-chain wallet P&amp;L.",
+  ];
+
+  if (summary.includedTradeCount === 0) {
+    lines.push("No resolved local trades were included.");
+  }
+
+  if (summary.dataGaps.length > 0) {
+    lines.push("", "<b>Data gaps:</b>");
+    for (const dataGap of summary.dataGaps) {
+      lines.push(`- ${escapeHtml(dataGap)}`);
+    }
+  }
+
+  if (summary.limitations.length > 0) {
+    lines.push("", "<b>Limitations:</b>");
+    for (const limitation of summary.limitations) {
+      lines.push(`- ${escapeHtml(limitation)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function formatSignedCurrency(value: number): string {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}$${formatCurrency(Math.abs(value))}`;
+}
+
+function formatNullablePercent(value: number | null): string {
+  if (value === null) {
+    return "n/a";
+  }
+
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 /** HTML parse_mode: <a href="..."> вместо Markdown. */

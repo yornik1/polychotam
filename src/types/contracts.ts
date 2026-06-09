@@ -30,6 +30,41 @@ export interface WalletUpsertInput {
   trade_count: number;
 }
 
+export type WalletPnlMethod = "resolved_only_local_trades";
+
+export type WalletPnlDataGapCode =
+  | "unresolved_markets_excluded"
+  | "invalid_numeric_trade_values"
+  | "unsupported_trade_side"
+  | "outside_period_excluded"
+  | "maker_address_only"
+  | "zero_risk_basis"
+  | "no_resolved_trades";
+
+export interface WalletPnlPeriod {
+  from: string | null;
+  days: number | null;
+}
+
+export interface WalletPnlQueryOptions {
+  from?: Date;
+  days?: number;
+}
+
+export interface WalletPnlSummary {
+  address: string;
+  method: WalletPnlMethod;
+  period: WalletPnlPeriod;
+  totalPnl: number;
+  totalRisk: number;
+  roi: number | null;
+  winRate: number | null;
+  includedTradeCount: number;
+  skippedTradeCount: number;
+  dataGaps: WalletPnlDataGapCode[];
+  limitations: string[];
+}
+
 export interface MarketResolution {
   condition_id: string;
   winning_token_id: string | null;
