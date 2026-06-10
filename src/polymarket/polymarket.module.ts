@@ -9,6 +9,7 @@ import { PolymarketEnrichmentModule } from "./polymarket-enrichment.module.js";
 import { PolymarketMarketResolutionService } from "./polymarket-market-resolution.service.js";
 import { PolymarketController } from "./polymarket.controller.js";
 import { PolymarketGateway } from "./polymarket.gateway.js";
+import { DataApiClient } from "./data-api.client.js";
 import { PolymarketHttpClient } from "./polymarket-http.client.js";
 import { PolymarketService } from "./polymarket.service.js";
 import { PolymarketWsClient } from "./polymarket-ws.client.js";
@@ -23,6 +24,7 @@ import { WsUptimeService } from "./ws-uptime.service.js";
   ],
   controllers: [PolymarketController],
   providers: [
+    DataApiClient,
     PolymarketService,
     PolymarketGateway,
     PolymarketHttpClient,
@@ -35,6 +37,7 @@ import { WsUptimeService } from "./ws-uptime.service.js";
     GammaMarketCronService,
   ],
   exports: [
+    DataApiClient,
     PolymarketService,
     PolymarketHttpClient,
     MarketSyncService,

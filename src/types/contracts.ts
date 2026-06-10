@@ -30,7 +30,7 @@ export interface WalletUpsertInput {
   trade_count: number;
 }
 
-export type WalletPnlMethod = "resolved_only_local_trades";
+export type WalletPnlMethod = "resolved_only_local_trades" | "cash_flow_wallet_activity";
 
 export type WalletPnlDataGapCode =
   | "unresolved_markets_excluded"
@@ -130,4 +130,135 @@ export interface TradeEnrichmentJob {
 export interface TradesBackfillPageJob {
   conditionId: string;
   offset: number;
+}
+
+// ─── PnL v2 / Smart Score ───────────────────────────────────────────────────
+
+/** Известные типы операций из data-api /activity. */
+export type WalletActivityType =
+  | "TRADE"
+  | "REDEEM"
+  | "SPLIT"
+  | "MERGE"
+  | "REWARD"
+  | "CONVERSION"
+  | "MAKER_REBATE";
+
+/**
+ * Тип поля `type` в записи активности — известный литерал или произвольная строка
+ * (на случай новых типов от API, которые ещё не добавлены в WalletActivityType).
+ */
+export type WalletActivityRawType = WalletActivityType | (string & {});
+
+/** Запись из data-api /activity (поля соответствуют ответу внешнего API). */
+export interface WalletActivityRaw {
+  proxyWallet: string;
+  timestamp: number;
+  conditionId: string;
+  type: WalletActivityRawType;
+  size: number;
+  usdcSize: number;
+  transactionHash: string;
+  price?: number;
+  asset?: string;
+  side?: "BUY" | "SELL";
+  outcomeIndex?: number;
+  title?: string;
+  slug?: string;
+  eventSlug?: string;
+  outcome?: string;
+  name?: string;
+  pseudonym?: string;
+}
+
+/** Запись из data-api /positions (поля соответствуют ответу внешнего API). */
+export interface WalletPositionRaw {
+  proxyWallet: string;
+  asset: string;
+  conditionId: string;
+  size: number;
+  avgPrice: number;
+  curPrice: number;
+  currentValue: number;
+  initialValue?: number;
+  cashPnl?: number;
+  realizedPnl?: number;
+  redeemable?: boolean;
+  negativeRisk?: boolean;
+  title?: string;
+  slug?: string;
+  outcome?: string;
+}
+
+/** Допустимые окна для lb-api /profit (90d отсутствует в lb-api). */
+export type LbProfitWindow = "1d" | "7d" | "30d" | "all";
+
+/** Запись ответа lb-api /profit. */
+export interface LbProfitResult {
+  proxyWallet: string;
+  amount: number;
+  name?: string;
+  pseudonym?: string;
+}
+
+/** Допустимые окна для PnL v2 (включает 90d, которого нет в lb-api). */
+export type WalletPnlV2Window = "30d" | "90d" | "all";
+
+/** Итог расчёта PnL v2 методом cash_flow_wallet_activity. */
+export interface WalletPnlV2Summary {
+  address: string;
+  window: WalletPnlV2Window;
+  method: "cash_flow_wallet_activity";
+  realizedPnl: number;
+  openPositionsValue: number;
+  totalPnl: number;
+  /** Разбивка потоков по типу операции. */
+  byOperation: Record<string, number>;
+  /** Типы операций, которые встретились и обработаны по гипотезе (SPLIT/MERGE/CONVERSION). */
+  hypothesisTypes: string[];
+  /** Описания пропусков / неизвестных типов операций. */
+  dataGaps: string[];
+  /** true — прошёл кросс-валидацию с lb-api в пределах ε. */
+  validated: boolean;
+  /** ISO-дата расчёта. */
+  computedAt: string;
+}
+
+/** Результат кросс-валидации PnL v2 против lb-api. */
+export interface WalletPnlDivergence {
+  address: string;
+  window: LbProfitWindow;
+  pnlV2: number;
+  lbAmount: number;
+  diff: number;
+  verdict: "pass" | "fail" | "investigate";
+}
+
+/** Специализация кошелька по категориям рынков (rolling 90d). */
+export type WalletScoreSpecialization = Record<
+  "politics" | "sports" | "crypto" | "other",
+  { winRate: number | null; resolvedCount: number }
+>;
+
+/** Скоринговая запись кошелька. */
+export interface WalletScore {
+  address: string;
+  pnl90d: number;
+  winRate: number;
+  profitFactor: number | null;
+  specialization: WalletScoreSpecialization;
+  sampleSize: number;
+  score: number;
+  /** ISO-дата расчёта. */
+  computedAt: string;
+}
+
+/** Job для пересчёта PnL v2 конкретного кошелька. */
+export interface WalletPnlRecalcJob {
+  address: string;
+}
+
+/** Job для пересчёта Smart Score; пустой address = пересчёт всего пула. */
+export interface SmartScoreRecalcJob {
+  address?: string;
 }
