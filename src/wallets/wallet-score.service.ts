@@ -1,17 +1,20 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { ConfigService } from "@nestjs/config";
 import { Trade } from "../trades/trade.entity.js";
 import { WalletPnlSnapshot } from "./wallet-pnl-snapshot.entity.js";
 import { WalletScore } from "./wallet-score.entity.js";
+import { SmartWallet } from "./smart-wallet.entity.js";
 import { WalletPnlV2Service } from "./wallet-pnl-v2.service.js";
 import { SmartWalletsService } from "./smart-wallets.service.js";
+import { TelegramService } from "../telegram/telegram.service.js";
 import { calculateResolvedTradePnl } from "./wallet-pnl.util.js";
 import { computeWalletScore } from "./wallet-score.util.js";
+import { computeRollingCheck, ROLLING_DEACTIVATION_THRESHOLD } from "./smart-score-rolling.util.js";
 import type { WalletScoreSpecialization } from "../types/contracts.js";
 
-/** Дефолтный порог win rate для попадания в /top */
+/** Дефолтный порог win rate для попадания в /top и rolling-деактивации */
 const DEFAULT_SMART_TOP_MIN_WIN_RATE = 0.55;
 
 /** Категории маркетов для специализации */
@@ -26,13 +29,18 @@ type MarketCategory = "politics" | "sports" | "crypto" | "other";
  */
 @Injectable()
 export class WalletScoreService {
+  private readonly logger = new Logger(WalletScoreService.name);
+
   constructor(
     @InjectRepository(Trade)
     private readonly tradeRepo: Repository<Trade>,
     @InjectRepository(WalletScore)
     private readonly scoreRepo: Repository<WalletScore>,
+    @InjectRepository(SmartWallet)
+    private readonly smartWalletRepo: Repository<SmartWallet>,
     private readonly walletPnlV2Service: WalletPnlV2Service,
     private readonly smartWalletsService: SmartWalletsService,
+    private readonly telegramService: TelegramService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -45,6 +53,80 @@ export class WalletScoreService {
 
     for (const wallet of whitelist) {
       await this.recalcOne(wallet.address);
+    }
+  }
+
+  /**
+   * Rolling-проверка автоисключения из whitelist.
+   *
+   * Для каждого активного кошелька сверяет текущий win_rate из wallet_scores
+   * с порогом SMART_TOP_MIN_WIN_RATE. Если ниже порога — увеличивает счётчик
+   * consecutive_low_winrate_days. При достижении ROLLING_DEACTIVATION_THRESHOLD
+   * деактивирует кошелёк и отправляет admin-алерт.
+   *
+   * Идемпотентность: проверка выполняется не более одного раза в сутки
+   * (сравнение last_winrate_check_date с текущей датой).
+   */
+  async rollingDeactivationCheck(): Promise<void> {
+    const minWinRate = Number(
+      this.configService.get<number | string>("SMART_TOP_MIN_WIN_RATE", DEFAULT_SMART_TOP_MIN_WIN_RATE),
+    );
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    // Загружаем все активные кошельки
+    const activeWallets = await this.smartWalletRepo.find({ where: { active: true } });
+
+    for (const wallet of activeWallets) {
+      // Идемпотентность: пропускаем если уже проверяли сегодня
+      if (wallet.last_winrate_check_date === todayStr) {
+        continue;
+      }
+
+      // Берём текущий win_rate из wallet_scores
+      const scoreRow = await this.scoreRepo.findOne({ where: { address: wallet.address } });
+      const winRate = scoreRow?.win_rate !== null && scoreRow?.win_rate !== undefined
+        ? Number(scoreRow.win_rate)
+        : null;
+
+      const { newConsecutiveDays, shouldDeactivate } = computeRollingCheck({
+        winRate,
+        consecutiveLowWinrateDays: wallet.consecutive_low_winrate_days,
+        minWinRate,
+      });
+
+      if (shouldDeactivate) {
+        // Деактивируем через прямое обновление и инвалидируем кэш
+        await this.smartWalletRepo.update(
+          { address: wallet.address },
+          {
+            active: false,
+            consecutive_low_winrate_days: newConsecutiveDays,
+            last_winrate_check_date: todayStr,
+          },
+        );
+        this.smartWalletsService.invalidateCache();
+
+        const winRateDisplay = winRate !== null ? `${(winRate * 100).toFixed(1)}%` : "н/д";
+        await this.telegramService.sendAdminAlert(
+          `🚫 Авто-исключение из whitelist\n` +
+          `Адрес: ${wallet.address}\n` +
+          `Винрейт: ${winRateDisplay}\n` +
+          `Серия низкого винрейта: ${newConsecutiveDays} дней (порог ${ROLLING_DEACTIVATION_THRESHOLD})`,
+        );
+        this.logger.log(
+          `Rolling-деактивация: ${wallet.address}, winRate=${winRateDisplay}, серия=${newConsecutiveDays} дней`,
+        );
+      } else {
+        // Обновляем счётчик без деактивации
+        await this.smartWalletRepo.update(
+          { address: wallet.address },
+          {
+            consecutive_low_winrate_days: newConsecutiveDays,
+            last_winrate_check_date: todayStr,
+          },
+        );
+      }
     }
   }
 

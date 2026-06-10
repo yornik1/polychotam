@@ -30,8 +30,11 @@ function stubPnlV2Service(recalc = vi.fn().mockResolvedValue(undefined)): Wallet
   return { recalc } as unknown as WalletPnlV2Service;
 }
 
-function stubScoreService(recalcScores = vi.fn().mockResolvedValue(undefined)): WalletScoreService {
-  return { recalcScores } as unknown as WalletScoreService;
+function stubScoreService(
+  recalcScores = vi.fn().mockResolvedValue(undefined),
+  rollingDeactivationCheck = vi.fn().mockResolvedValue(undefined),
+): WalletScoreService {
+  return { recalcScores, rollingDeactivationCheck } as unknown as WalletScoreService;
 }
 
 function stubLbCrossCheck(validateWallet = vi.fn().mockResolvedValue(undefined)): LbCrossCheckService {

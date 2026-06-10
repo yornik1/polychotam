@@ -59,9 +59,10 @@ export class WalletAnalyticsProcessor extends WorkerHost {
       return;
     }
 
-    // Ежедневный пересчёт скоринга кошельков
+    // Ежедневный пересчёт скоринга + rolling-мониторинг автоисключения
     if (job.name === WALLET_ANALYTICS_JOB_SMART_SCORE_RECALC) {
       await this.walletScoreService.recalcScores();
+      await this.walletScoreService.rollingDeactivationCheck();
       return;
     }
   }

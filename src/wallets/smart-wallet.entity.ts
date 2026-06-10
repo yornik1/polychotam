@@ -43,6 +43,17 @@ export class SmartWallet {
   @Column({ type: "varchar", length: 32, default: "manual" })
   source!: string;
 
+  /**
+   * Счётчик дней подряд с винрейтом ниже порога.
+   * При достижении ROLLING_DEACTIVATION_THRESHOLD (14) кошелёк деактивируется.
+   */
+  @Column({ type: "int", default: 0 })
+  consecutive_low_winrate_days!: number;
+
+  /** Дата последней проверки rolling-счётчика (для идемпотентности: один раз в сутки). */
+  @Column({ type: "date", nullable: true })
+  last_winrate_check_date!: string | null;
+
   @CreateDateColumn({ type: "timestamptz", name: "internal_created_at" })
   internal_created_at!: Date;
 
