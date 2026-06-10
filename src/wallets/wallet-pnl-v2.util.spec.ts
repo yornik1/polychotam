@@ -140,7 +140,7 @@ describe("computeCashFlowPnl", () => {
   describe("неизвестный тип", () => {
     it("не падает, пишет в dataGaps, не суммирует", () => {
       const result = computeCashFlowPnl(
-        [activity({ type: "UNKNOWN_FUTURE_TYPE" as any, side: undefined, usdcSize: 50 })],
+        [activity({ type: "UNKNOWN_FUTURE_TYPE" as unknown as string, side: undefined, usdcSize: 50 })],
         [],
       );
       expect(result.realizedPnl).toBe(0);
@@ -150,9 +150,9 @@ describe("computeCashFlowPnl", () => {
     it("несколько записей одного неизвестного типа — одна строка с количеством", () => {
       const result = computeCashFlowPnl(
         [
-          activity({ type: "MYSTERY" as any, usdcSize: 10 }),
-          activity({ type: "MYSTERY" as any, usdcSize: 20 }),
-          activity({ type: "MYSTERY" as any, usdcSize: 30 }),
+          activity({ type: "MYSTERY" as unknown as string, usdcSize: 10 }),
+          activity({ type: "MYSTERY" as unknown as string, usdcSize: 20 }),
+          activity({ type: "MYSTERY" as unknown as string, usdcSize: 30 }),
         ],
         [],
       );
@@ -170,7 +170,7 @@ describe("computeCashFlowPnl", () => {
 
     it("TRADE с неожиданным side → dataGaps, не падает", () => {
       const result = computeCashFlowPnl(
-        [activity({ type: "TRADE", side: "UNKNOWN_SIDE" as any, usdcSize: 50 })],
+        [activity({ type: "TRADE", side: "UNKNOWN_SIDE" as unknown as "BUY" | "SELL" | undefined, usdcSize: 50 })],
         [],
       );
       expect(result.realizedPnl).toBe(0);

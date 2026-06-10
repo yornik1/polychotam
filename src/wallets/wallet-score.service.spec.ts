@@ -161,7 +161,6 @@ describe("WalletScoreService", () => {
       await service.recalcScores();
 
       expect(scoreRepo.upsert).toHaveBeenCalledOnce();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const upsertArg = (scoreRepo.upsert as ReturnType<typeof vi.fn>).mock.calls[0]![0];
       expect(upsertArg.profit_factor).toBeNull();
       expect(Number(upsertArg.score)).toBeGreaterThan(0);
@@ -186,7 +185,6 @@ describe("WalletScoreService", () => {
 
       await service.recalcScores();
 
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const upsertArg = (scoreRepo.upsert as ReturnType<typeof vi.fn>).mock.calls[0]![0];
       const spec = upsertArg.specialization;
       expect(spec.politics.resolvedCount).toBe(15);
@@ -236,7 +234,6 @@ describe("WalletScoreService", () => {
       await service.getTopByScore(5);
 
       // innerJoin должен содержать условие validated = true
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const joinCall = (qb.innerJoin as ReturnType<typeof vi.fn>).mock.calls[0]!;
       expect(joinCall[1]).toContain("snap");
       expect(joinCall[2]).toContain("validated = true");
@@ -257,7 +254,6 @@ describe("WalletScoreService", () => {
       await service.getTopByScore(10);
 
       // where должен содержать строгое > :minWinRate (граница 0.55 отсекается)
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const whereCall = (qb.where as ReturnType<typeof vi.fn>).mock.calls[0]!;
       expect(whereCall[0]).toContain("> :minWinRate");
       expect(whereCall[0]).not.toContain(">=");

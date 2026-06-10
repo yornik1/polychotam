@@ -183,7 +183,6 @@ describe("LbCrossCheckService.validateWallet", () => {
 
       expect(snapshotRepo.update).toHaveBeenCalledWith({ address: ADDR }, { validated: false });
       expect(sendAdminAlert).toHaveBeenCalled();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const msg: string = sendAdminAlert.mock.calls[0]![0] as string;
       expect(msg).toContain("FAIL");
       expect(msg).toContain(ADDR);
@@ -207,7 +206,6 @@ describe("LbCrossCheckService.validateWallet", () => {
 
       expect(snapshotRepo.update).toHaveBeenCalledWith({ address: ADDR }, { validated: false });
       expect(sendAdminAlert).toHaveBeenCalled();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const msg: string = sendAdminAlert.mock.calls[0]![0] as string;
       expect(msg).toContain("INVESTIGATE");
     });
@@ -269,7 +267,6 @@ describe("LbCrossCheckService.validateWallet", () => {
       await service.validateWallet(ADDR);
 
       expect(sendAdminAlert).toHaveBeenCalled();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const msg: string = sendAdminAlert.mock.calls[0]![0] as string;
       expect(msg).toContain("CONVERSION");
       expect(msg).toContain("SPLIT");
@@ -293,7 +290,6 @@ describe("LbCrossCheckService.validateWallet", () => {
 
       await service.validateWallet(ADDR);
 
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const msg: string = sendAdminAlert.mock.calls[0]![0] as string;
       expect(msg).toContain("MERGE");
     });
