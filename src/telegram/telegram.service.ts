@@ -32,4 +32,21 @@ export class TelegramService {
       return false;
     }
   }
+
+  async sendAdminAlert(message: string): Promise<boolean> {
+    const chatId = this.configService.getOrThrow<string>("ADMIN_CHAT_ID").trim();
+    if (chatId.length === 0) {
+      this.logger.warn("ADMIN_CHAT_ID пустой, admin alert пропущен");
+      return false;
+    }
+
+    try {
+      await this.bot.telegram.sendMessage(chatId, message);
+      return true;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Неизвестная ошибка";
+      this.logger.error(`Не удалось отправить Telegram admin alert: ${errorMessage}`);
+      return false;
+    }
+  }
 }

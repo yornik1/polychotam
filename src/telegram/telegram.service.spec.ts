@@ -49,4 +49,36 @@ describe("TelegramService", () => {
 
     expect(sendMessage).not.toHaveBeenCalled();
   });
+
+  it("sendAdminAlert отправляет сообщение в ADMIN_CHAT_ID", async () => {
+    const getOrThrow = vi.fn((key: string) => {
+      if (key === "TELEGRAM_BOT_TOKEN") return "bot-token";
+      if (key === "ADMIN_CHAT_ID") return "777000";
+      throw new Error(`Unexpected key: ${key}`);
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const service = new TelegramService(
+      { getOrThrow } as unknown as ConfigService,
+      { telegram: { sendMessage } } as never,
+    );
+
+    await expect(service.sendAdminAlert("admin-alert")).resolves.toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledWith("777000", "admin-alert");
+  });
+
+  it("sendAdminAlert возвращает false при ошибке отправки", async () => {
+    const getOrThrow = vi.fn((key: string) => {
+      if (key === "TELEGRAM_BOT_TOKEN") return "bot-token";
+      if (key === "ADMIN_CHAT_ID") return "777000";
+      throw new Error(`Unexpected key: ${key}`);
+    });
+    const sendMessage = vi.fn().mockRejectedValue(new Error("network error"));
+    const service = new TelegramService(
+      { getOrThrow } as unknown as ConfigService,
+      { telegram: { sendMessage } } as never,
+    );
+
+    await expect(service.sendAdminAlert("admin-alert")).resolves.toBe(false);
+  });
 });

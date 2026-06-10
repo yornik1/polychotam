@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Ctx, Command, Start, Update } from "nestjs-telegraf";
 import { MarketScoreService } from "../markets/market-score.service.js";
 import { MarketsService } from "../markets/markets.service.js";
@@ -13,6 +14,7 @@ import { PolymarketWsStatusService } from "../polymarket/polymarket-ws-status.se
 import { AlertSettingsService } from "../settings/alert-settings.service.js";
 import { WsUptimeService } from "../polymarket/ws-uptime.service.js";
 import { resolveWalletPnlPeriod } from "../wallets/wallet-pnl-period.util.js";
+import { isAdminChat } from "./admin-guard.util.js";
 import {
   formatAlertsStatusMessage,
   formatErrorsMessage,
@@ -31,6 +33,7 @@ import {
 
 interface ReplyContext {
   payload?: string;
+  chat?: { id: number };
   reply(message: string, extra?: unknown): Promise<unknown> | unknown;
 }
 
@@ -55,7 +58,12 @@ export class TelegramUpdate {
     private readonly marketRepository: Repository<Market>,
     private readonly alertSettingsService: AlertSettingsService,
     private readonly wsUptimeService: WsUptimeService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.adminChatId = this.configService.getOrThrow<string>("ADMIN_CHAT_ID");
+  }
+
+  private readonly adminChatId: string;
 
   @Start()
   async handleStart(@Ctx() ctx: ReplyContext): Promise<void> {
@@ -193,6 +201,7 @@ export class TelegramUpdate {
 
   @Command("alerts")
   async handleAlerts(@Ctx() ctx: ReplyContext): Promise<void> {
+    if (!isAdminChat(ctx.chat?.id, this.adminChatId)) return;
     const raw = ctx.payload?.trim() ?? "";
     const arg = raw.toLowerCase();
 
@@ -253,12 +262,14 @@ export class TelegramUpdate {
 
   @Command("queues")
   async handleQueues(@Ctx() ctx: ReplyContext): Promise<void> {
+    if (!isAdminChat(ctx.chat?.id, this.adminChatId)) return;
     const counts = await this.queueStatsService.getAllQueueCounts();
     await ctx.reply(formatQueuesMessage(counts), { parse_mode: "HTML" });
   }
 
   @Command("errors")
   async handleErrors(@Ctx() ctx: ReplyContext): Promise<void> {
+    if (!isAdminChat(ctx.chat?.id, this.adminChatId)) return;
     const limitRaw = ctx.payload?.trim() ?? "";
     const limit = Math.max(
       1,
@@ -272,6 +283,7 @@ export class TelegramUpdate {
 
   @Command("ws")
   async handleWs(@Ctx() ctx: ReplyContext): Promise<void> {
+    if (!isAdminChat(ctx.chat?.id, this.adminChatId)) return;
     const lastTradeRow = await this.tradeRepository
       .createQueryBuilder("t")
       .select("MAX(t.match_time)", "lastAt")

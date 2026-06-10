@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Repository } from "typeorm";
+import { ConfigService } from "@nestjs/config";
 import { Market } from "../markets/market.entity.js";
 import { Trade } from "../trades/trade.entity.js";
 import { MarketsService } from "../markets/markets.service.js";
@@ -15,8 +16,11 @@ import { TelegramUpdate } from "./telegram.update.js";
 
 interface ReplyContext {
   payload?: string;
+  chat?: { id: number };
   reply: (message: string, extra?: unknown) => unknown;
 }
+
+const ADMIN_CHAT_ID = "777000";
 
 describe("TelegramUpdate", () => {
   function createUpdate() {
@@ -46,13 +50,19 @@ describe("TelegramUpdate", () => {
     const getUptimeRatio24h = vi.fn<() => Promise<number>>().mockResolvedValue(0.5);
     const wsUptimeService = { getElapsedMs, getUptimeRatio24h };
     const queueStatsService = {
-      getAllQueueCounts: vi.fn(),
-      getRecentErrors: vi.fn(),
+      getAllQueueCounts: vi.fn().mockResolvedValue([]),
+      getRecentErrors: vi.fn().mockResolvedValue({ entries: [], totalInTail: 0 }),
     };
     const wsStatusService = {
       isConnected: vi.fn().mockReturnValue(true),
       getSubscribedAssets: vi.fn().mockReturnValue(0),
       getReconnectsLast24h: vi.fn().mockReturnValue(0),
+    };
+    const configService = {
+      getOrThrow: vi.fn((key: string) => {
+        if (key === "ADMIN_CHAT_ID") return ADMIN_CHAT_ID;
+        throw new Error(`Unexpected key: ${key}`);
+      }),
     };
 
     const update = new TelegramUpdate(
@@ -66,6 +76,7 @@ describe("TelegramUpdate", () => {
       {} as unknown as Repository<Market>,
       alertSettingsService as unknown as AlertSettingsService,
       wsUptimeService as unknown as WsUptimeService,
+      configService as unknown as ConfigService,
     );
 
     return {
@@ -80,6 +91,8 @@ describe("TelegramUpdate", () => {
       getHistoricalPnl,
       alertSettingsService,
       wsUptimeService,
+      queueStatsService,
+      wsStatusService,
     };
   }
 
@@ -460,7 +473,7 @@ describe("TelegramUpdate", () => {
     const { update, alertSettingsService } = createUpdate();
     const reply = vi.fn<(message: string) => void>();
 
-    await update.handleAlerts({ payload: "on", reply } as ReplyContext);
+    await update.handleAlerts({ payload: "on", chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
 
     expect(alertSettingsService.setAlertsEnabled).toHaveBeenCalledWith(true);
     expect(reply).toHaveBeenCalledWith(expect.stringMatching(/вкл/i));
@@ -470,7 +483,7 @@ describe("TelegramUpdate", () => {
     const { update, alertSettingsService } = createUpdate();
     const reply = vi.fn<(message: string) => void>();
 
-    await update.handleAlerts({ payload: "off", reply } as ReplyContext);
+    await update.handleAlerts({ payload: "off", chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
 
     expect(alertSettingsService.setAlertsEnabled).toHaveBeenCalledWith(false);
     expect(reply).toHaveBeenCalledWith(expect.stringMatching(/выкл/i));
@@ -481,9 +494,80 @@ describe("TelegramUpdate", () => {
     alertSettingsService.isAlertsEnabled.mockResolvedValue(false);
     const reply = vi.fn<(message: string) => void>();
 
-    await update.handleAlerts({ payload: "", reply } as ReplyContext);
+    await update.handleAlerts({ payload: "", chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
 
     expect(alertSettingsService.isAlertsEnabled).toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith(expect.stringMatching(/выкл/i));
+  });
+
+  describe("admin guard", () => {
+    it("/queues не отвечает не-admin чату", async () => {
+      const { update, queueStatsService } = createUpdate();
+      const reply = vi.fn();
+
+      await update.handleQueues({ chat: { id: 999 }, reply } as ReplyContext);
+
+      expect(queueStatsService.getAllQueueCounts).not.toHaveBeenCalled();
+      expect(reply).not.toHaveBeenCalled();
+    });
+
+    it("/queues отвечает admin чату", async () => {
+      const { update, queueStatsService } = createUpdate();
+      const reply = vi.fn();
+
+      await update.handleQueues({ chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
+
+      expect(queueStatsService.getAllQueueCounts).toHaveBeenCalled();
+      expect(reply).toHaveBeenCalled();
+    });
+
+    it("/errors не отвечает не-admin чату", async () => {
+      const { update, queueStatsService } = createUpdate();
+      const reply = vi.fn();
+
+      await update.handleErrors({ chat: { id: 999 }, reply } as ReplyContext);
+
+      expect(queueStatsService.getRecentErrors).not.toHaveBeenCalled();
+      expect(reply).not.toHaveBeenCalled();
+    });
+
+    it("/errors отвечает admin чату", async () => {
+      const { update, queueStatsService } = createUpdate();
+      const reply = vi.fn();
+
+      await update.handleErrors({ chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
+
+      expect(queueStatsService.getRecentErrors).toHaveBeenCalled();
+      expect(reply).toHaveBeenCalled();
+    });
+
+    it("/ws не отвечает не-admin чату", async () => {
+      const { update } = createUpdate();
+      const reply = vi.fn();
+      // tradeRepository не мокируется — не должен вызываться
+      await update.handleWs({ chat: { id: 999 }, reply } as ReplyContext);
+
+      expect(reply).not.toHaveBeenCalled();
+    });
+
+    it("/alerts не отвечает не-admin чату", async () => {
+      const { update, alertSettingsService } = createUpdate();
+      const reply = vi.fn();
+
+      await update.handleAlerts({ payload: "", chat: { id: 999 }, reply } as ReplyContext);
+
+      expect(alertSettingsService.isAlertsEnabled).not.toHaveBeenCalled();
+      expect(reply).not.toHaveBeenCalled();
+    });
+
+    it("/alerts отвечает admin чату", async () => {
+      const { update, alertSettingsService } = createUpdate();
+      const reply = vi.fn();
+
+      await update.handleAlerts({ payload: "", chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
+
+      expect(alertSettingsService.isAlertsEnabled).toHaveBeenCalled();
+      expect(reply).toHaveBeenCalled();
+    });
   });
 });

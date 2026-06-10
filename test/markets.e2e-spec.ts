@@ -20,6 +20,7 @@ import { WsConnectionEvent } from "../src/polymarket/ws-connection-event.entity.
 import { AppModule } from "../src/app.module.js";
 import { Market } from "../src/markets/market.entity.js";
 import { SmartWallet } from "../src/wallets/smart-wallet.entity.js";
+import { WalletPnlSnapshot } from "../src/wallets/wallet-pnl-snapshot.entity.js";
 import { PolymarketHttpClient } from "../src/polymarket/polymarket-http.client.js";
 import { PolymarketWsClient } from "../src/polymarket/polymarket-ws.client.js";
 import { Trade } from "../src/trades/trade.entity.js";
@@ -45,6 +46,7 @@ describe("GET /markets (e2e)", () => {
     vi.stubEnv("REDIS_URL", "redis://127.0.0.1:6379");
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
     vi.stubEnv("TELEGRAM_CHAT_ID", "123456");
+    vi.stubEnv("ADMIN_CHAT_ID", "777000");
     vi.stubEnv("POLYMARKET_WS_URL", "wss://example.com/ws");
     vi.stubEnv("POLYMARKET_REST_URL", "https://example.com");
     vi.stubEnv("POLYMARKET_MARKETS_PATH", "/markets");
@@ -111,6 +113,8 @@ describe("GET /markets (e2e)", () => {
       .useValue(emptyRepo as Repository<Wallet>)
       .overrideProvider(getRepositoryToken(SmartWallet))
       .useValue(emptyRepo as Repository<SmartWallet>)
+      .overrideProvider(getRepositoryToken(WalletPnlSnapshot))
+      .useValue(emptyRepo as Repository<WalletPnlSnapshot>)
       .overrideProvider(getRepositoryToken(AppSetting))
       .useValue({
         findOne: vi.fn().mockResolvedValue({ key: "alerts_enabled", value: "true" }),
