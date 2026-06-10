@@ -7,6 +7,7 @@ export const TRADE_ENRICHMENT_QUEUE_NAME = "trade-enrichment";
 export const TRADES_JOB_PROCESS = "process-trade";
 export const TRADES_JOB_BACKFILL_PAGE = "backfill-page";
 export const WALLET_ANALYTICS_JOB_RECALCULATE = "wallet-recalculate";
+export const WALLET_ANALYTICS_JOB_PNL_RECALC = "wallet-pnl-recalc";
 export const TRADE_ENRICHMENT_JOB_PROCESS = "enrich-trade";
 
 /** Префикс пользовательского jobId для enrichment (имя job — `enrich-trade`). */

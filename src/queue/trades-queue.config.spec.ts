@@ -4,6 +4,7 @@ import {
   TRADES_JOB_PROCESS,
   TRADES_QUEUE_NAME,
   tradesQueueRegisterOptions,
+  WALLET_ANALYTICS_JOB_PNL_RECALC,
   WALLET_ANALYTICS_JOB_RECALCULATE,
   WALLET_ANALYTICS_QUEUE_NAME,
   walletAnalyticsQueueRegisterOptions,
@@ -15,6 +16,7 @@ describe("trades-queue.config", () => {
     expect(TRADES_JOB_PROCESS).toBe("process-trade");
     expect(WALLET_ANALYTICS_QUEUE_NAME).toBe("wallet-analytics");
     expect(WALLET_ANALYTICS_JOB_RECALCULATE).toBe("wallet-recalculate");
+    expect(WALLET_ANALYTICS_JOB_PNL_RECALC).toBe("wallet-pnl-recalc");
   });
 
   it("регистрация очереди задаёт retry 3× exponential", () => {
@@ -49,5 +51,12 @@ describe("trades-queue.config", () => {
       "trade-enrichment-ws-dead",
     );
     expect(tradesDerivedJobId("p", "a:b:c")).toBe("p-a-b-c");
+  });
+
+  it("jobId для pnl-recalc не содержит двоеточий", () => {
+    // Паттерн из QueueService.enqueueWalletPnlRecalc: prefix='pnl', key=address
+    const jobId = tradesDerivedJobId("pnl", "0xdeadbeef");
+    expect(jobId).toBe("pnl-0xdeadbeef");
+    expect(jobId).not.toContain(":");
   });
 });
