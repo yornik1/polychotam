@@ -21,6 +21,7 @@ import { AppModule } from "../src/app.module.js";
 import { Market } from "../src/markets/market.entity.js";
 import { SmartWallet } from "../src/wallets/smart-wallet.entity.js";
 import { WalletPnlSnapshot } from "../src/wallets/wallet-pnl-snapshot.entity.js";
+import { WalletScore } from "../src/wallets/wallet-score.entity.js";
 import { PolymarketHttpClient } from "../src/polymarket/polymarket-http.client.js";
 import { PolymarketWsClient } from "../src/polymarket/polymarket-ws.client.js";
 import { Trade } from "../src/trades/trade.entity.js";
@@ -115,6 +116,8 @@ describe("GET /markets (e2e)", () => {
       .useValue(emptyRepo as Repository<SmartWallet>)
       .overrideProvider(getRepositoryToken(WalletPnlSnapshot))
       .useValue(emptyRepo as Repository<WalletPnlSnapshot>)
+      .overrideProvider(getRepositoryToken(WalletScore))
+      .useValue(emptyRepo as Repository<WalletScore>)
       .overrideProvider(getRepositoryToken(AppSetting))
       .useValue({
         findOne: vi.fn().mockResolvedValue({ key: "alerts_enabled", value: "true" }),
