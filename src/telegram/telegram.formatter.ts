@@ -1,5 +1,4 @@
 import { Market } from "../markets/market.entity.js";
-import { Wallet } from "../wallets/wallet.entity.js";
 import type {
   MarketScore,
   MarketScoreConclusionCode,
@@ -216,19 +215,6 @@ function truncateText(text: string, maxLength: number): string {
   return `${text.slice(0, maxLength - 3)}...`;
 }
 
-export function formatTopWalletsMessage(wallets: Wallet[]): string {
-  const lines = ["\u{1F3C6} \u0422\u043E\u043F \u043A\u043E\u0448\u0435\u043B\u044C\u043A\u043E\u0432:", ""];
-
-  for (const [index, wallet] of wallets.entries()) {
-    const winRate = Math.round(Number(wallet.win_rate) * 100);
-    lines.push(
-      `${index + 1}. ${formatWalletAddress(wallet.address)} — win rate ${winRate}%, won $${formatCurrency(Number(wallet.total_won))}`,
-    );
-  }
-
-  return lines.join("\n");
-}
-
 /** Форматирует PnL v2 (on-chain cash-flow) для вывода в Telegram. */
 export function formatWalletPnlV2Message(summary: WalletPnlV2Summary): string {
   const addr = escapeHtml(formatWalletAddress(summary.address));
@@ -264,28 +250,6 @@ function formatUpdatedAgo(computedAt: string): string {
 function formatSignedCurrency(value: number): string {
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${sign}$${formatCurrency(Math.abs(value))}`;
-}
-
-/** HTML parse_mode: <a href="..."> вместо Markdown. */
-export function formatTopWhalesMessage(
-  whales: Array<{ address: string; totalVolume: string; tradeCount: number }>,
-): string {
-  const lines = ["\u{1F40B} <b>Топ-10 китов по объёму:</b>", ""];
-
-  for (const [index, whale] of whales.entries()) {
-    const volume = formatCurrency(Number(whale.totalVolume));
-    const polymarketUrl = `https://polymarket.com/profile/${whale.address}`;
-    const addr = escapeHtml(formatWalletAddress(whale.address));
-    lines.push(
-      `${index + 1}. <a href="${polymarketUrl}">${addr}</a> — $${volume} (${whale.tradeCount} trades)`,
-    );
-  }
-
-  if (whales.length === 0) {
-    lines.push("Нет данных");
-  }
-
-  return lines.join("\n");
 }
 
 /**

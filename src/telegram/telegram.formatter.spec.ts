@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { Market } from "../markets/market.entity.js";
-import { Wallet } from "../wallets/wallet.entity.js";
 import type { SmartWalletStats } from "../wallets/smart-wallets.service.js";
 import type { MarketScore, WalletPnlV2Summary, WalletScoreSpecialization } from "../types/contracts.js";
 import type { WalletScore } from "../wallets/wallet-score.entity.js";
@@ -13,7 +12,6 @@ import {
   formatStartMessage,
   formatStatsMessage,
   formatTopSmartWalletsMessage,
-  formatTopWalletsMessage,
 } from "./telegram.formatter.js";
 
 describe("telegram formatter", () => {
@@ -148,33 +146,6 @@ describe("telegram formatter", () => {
     expect(message).toContain("NO 28%");
     expect(message).toContain("$1,250,000");
     expect(message).toContain("2024-11-05");
-  });
-
-  it("formatTopWalletsMessage форматирует топ кошельков списком", () => {
-    const wallets = [
-      {
-        address: "0xABCDEF1234567890",
-        win_rate: "0.78",
-        total_won: "12400",
-        total_lost: "3000",
-        trade_count: 12,
-      },
-      {
-        address: "0x9876543210FEDCBA",
-        win_rate: "0.71",
-        total_won: "8900",
-        total_lost: "1200",
-        trade_count: 8,
-      },
-    ] as Wallet[];
-
-    const message = formatTopWalletsMessage(wallets);
-
-    expect(message).toContain("Топ кошельков");
-    expect(message).toContain("1.");
-    expect(message).toContain("78%");
-    expect(message).toContain("$12,400");
-    expect(message).toContain("0xABCD");
   });
 
   it("formatWalletPnlV2Message показывает total/realized/open и служебную строку", () => {
