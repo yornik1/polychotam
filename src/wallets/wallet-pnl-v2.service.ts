@@ -217,6 +217,9 @@ export class WalletPnlV2Service {
     const positions = await this.dataApiClient.fetchPositions(address);
     const pnlResult = computeCashFlowPnl(rawActivities, positions);
 
+    // Watermark для скользящих окон (30d/90d) чисто информативен:
+    // синк их всегда пересчитывает полностью от now − N дней, инкрементальность
+    // по watermark применяется только к окну "all" (см. recalcAll)
     let newWatermark: number | null = null;
     if (rawActivities.length > 0) {
       newWatermark = Math.max(...rawActivities.map((a) => a.timestamp));
