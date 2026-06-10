@@ -5,7 +5,7 @@ import type {
   MarketScoreConclusionCode,
   MarketScoreDataGapCode,
   MarketScoreReason,
-  WalletPnlSummary,
+  WalletPnlV2Summary,
   WalletScoreSpecialization,
 } from "../types/contracts.js";
 import type { SmartWalletStats, SmartWalletDetail } from "../wallets/smart-wallets.service.js";
@@ -77,15 +77,11 @@ export function formatStartMessage(): string {
     "Команды:",
     "/whales — smart whale whitelist",
     "/whale &lt;addr&gt; — детали кошелька",
-    "/pnl &lt;addr&gt; [days] — local resolved-only P&amp;L estimate",
+    "/pnl &lt;addr&gt; [days] — on-chain P&amp;L (30d/90d/all)",
     "/market &lt;slug&gt; — инфо по маркету",
     "/score &lt;slug-or-id&gt; — оценка рынка",
-    "/top — топ по объёму (все киты)",
+    "/top — топ по skill score",
     "/stats — статистика системы",
-    "/alerts [on|off] — глобально вкл/выкл TG-алерты",
-    "/queues — статус очередей BullMQ",
-    "/errors — последние ошибки джобов",
-    "/ws — статус WS подключения",
   ].join("\n");
 }
 
@@ -233,52 +229,41 @@ export function formatTopWalletsMessage(wallets: Wallet[]): string {
   return lines.join("\n");
 }
 
-export function formatWalletPnlMessage(summary: WalletPnlSummary): string {
-  const lines = [
-    "\u{1F4CA} <b>Wallet P&amp;L estimate</b>",
-    `Wallet: ${escapeHtml(formatWalletAddress(summary.address))}`,
-    `Period: ${summary.period.days ?? "n/a"} days`,
-    `Total P&amp;L: ${formatSignedCurrency(summary.totalPnl)}`,
-    `ROI: ${formatNullablePercent(summary.roi)}`,
-    `Win rate: ${formatNullablePercent(summary.winRate)}`,
-    `Included trades: ${summary.includedTradeCount}`,
-    `Skipped trades: ${summary.skippedTradeCount}`,
-    `Method: ${escapeHtml(summary.method)}`,
-    "Scope: local resolved-only estimate, not full on-chain wallet P&amp;L.",
-  ];
+/** Форматирует PnL v2 (on-chain cash-flow) для вывода в Telegram. */
+export function formatWalletPnlV2Message(summary: WalletPnlV2Summary): string {
+  const addr = escapeHtml(formatWalletAddress(summary.address));
+  const total = formatSignedCurrency(summary.totalPnl);
+  const realized = formatSignedCurrency(summary.realizedPnl);
+  const open = formatSignedCurrency(summary.openPositionsValue);
+  const updatedLine = formatUpdatedAgo(summary.computedAt);
 
-  if (summary.includedTradeCount === 0) {
-    lines.push("No resolved local trades were included.");
+  return [
+    `\u{1F4CA} <b>Wallet P&amp;L</b>`,
+    `Wallet: ${addr}`,
+    `Period: ${escapeHtml(summary.window)}`,
+    `Total P&amp;L: ${total}`,
+    `  Realized: ${realized}`,
+    `  Open positions: ${open}`,
+    `est. on-chain data · ${updatedLine}`,
+  ].join("\n");
+}
+
+/**
+ * Возвращает строку «обновлено N мин назад» или «только что»
+ * на основании ISO-строки computedAt.
+ */
+function formatUpdatedAgo(computedAt: string): string {
+  const diffMs = Date.now() - new Date(computedAt).getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) {
+    return "обновлено только что";
   }
-
-  if (summary.dataGaps.length > 0) {
-    lines.push("", "<b>Data gaps:</b>");
-    for (const dataGap of summary.dataGaps) {
-      lines.push(`- ${escapeHtml(dataGap)}`);
-    }
-  }
-
-  if (summary.limitations.length > 0) {
-    lines.push("", "<b>Limitations:</b>");
-    for (const limitation of summary.limitations) {
-      lines.push(`- ${escapeHtml(limitation)}`);
-    }
-  }
-
-  return lines.join("\n");
+  return `обновлено ${diffMin} мин назад`;
 }
 
 function formatSignedCurrency(value: number): string {
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${sign}$${formatCurrency(Math.abs(value))}`;
-}
-
-function formatNullablePercent(value: number | null): string {
-  if (value === null) {
-    return "n/a";
-  }
-
-  return `${(value * 100).toFixed(1)}%`;
 }
 
 /** HTML parse_mode: <a href="..."> вместо Markdown. */

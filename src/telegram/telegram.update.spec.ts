@@ -6,13 +6,13 @@ import { Trade } from "../trades/trade.entity.js";
 import { MarketsService } from "../markets/markets.service.js";
 import { MarketScoreService } from "../markets/market-score.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
-import { WalletsService } from "../wallets/wallets.service.js";
-import type { MarketScore, WalletPnlSummary, WalletScoreSpecialization } from "../types/contracts.js";
+import type { MarketScore, WalletPnlV2Summary, WalletPnlV2Window, WalletScoreSpecialization } from "../types/contracts.js";
 import type { QueueStatsService } from "../queue/queue-stats.service.js";
 import type { PolymarketWsStatusService } from "../polymarket/polymarket-ws-status.service.js";
 import type { AlertSettingsService } from "../settings/alert-settings.service.js";
 import type { WsUptimeService } from "../polymarket/ws-uptime.service.js";
 import type { WalletScoreService } from "../wallets/wallet-score.service.js";
+import type { WalletPnlV2Service } from "../wallets/wallet-pnl-v2.service.js";
 import type { TelegramService } from "./telegram.service.js";
 import type { WalletScore } from "../wallets/wallet-score.entity.js";
 import { TelegramUpdate } from "./telegram.update.js";
@@ -52,9 +52,6 @@ describe("TelegramUpdate", () => {
     const findByConditionId = vi.fn<(conditionId: string) => Promise<Market | null>>();
     const getScoreCandidates = vi.fn<(limit?: number) => Promise<Market[]>>();
     const scoreMarket = vi.fn<(market: Market) => MarketScore>();
-    const getTopWalletsByVolumeOnTopMarkets = vi.fn<
-      () => Promise<Array<{ address: string; totalVolume: string; tradeCount: number }>>
-    >();
     const getActiveWhitelist = vi.fn<() => Promise<Array<{
       address: string;
       active: boolean;
@@ -66,7 +63,7 @@ describe("TelegramUpdate", () => {
       source: string;
     }>>>();
     const getWalletDetail = vi.fn<(address: string) => Promise<unknown>>();
-    const getHistoricalPnl = vi.fn<(address: string) => Promise<WalletPnlSummary>>();
+    const getOrComputePnl = vi.fn<(address: string, window: WalletPnlV2Window) => Promise<WalletPnlV2Summary>>();
     const isAlertsEnabled = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
     const setAlertsEnabled = vi.fn<(v: boolean) => Promise<void>>().mockResolvedValue(undefined);
     const alertSettingsService = { isAlertsEnabled, setAlertsEnabled };
@@ -94,7 +91,6 @@ describe("TelegramUpdate", () => {
     const update = new TelegramUpdate(
       { findBySlug, findByConditionId, getScoreCandidates } as unknown as MarketsService,
       { scoreMarket } as unknown as MarketScoreService,
-      { getTopWalletsByVolumeOnTopMarkets, getHistoricalPnl } as unknown as WalletsService,
       { getActiveWhitelist, getWalletDetail } as unknown as SmartWalletsService,
       queueStatsService as unknown as QueueStatsService,
       wsStatusService as unknown as PolymarketWsStatusService,
@@ -105,6 +101,7 @@ describe("TelegramUpdate", () => {
       configService as unknown as ConfigService,
       { getTopByScore } as unknown as WalletScoreService,
       { sendAdminAlert } as unknown as TelegramService,
+      { getOrComputePnl } as unknown as WalletPnlV2Service,
     );
 
     return {
@@ -113,10 +110,9 @@ describe("TelegramUpdate", () => {
       findByConditionId,
       getScoreCandidates,
       scoreMarket,
-      getTopWalletsByVolumeOnTopMarkets,
       getActiveWhitelist,
       getWalletDetail,
-      getHistoricalPnl,
+      getOrComputePnl,
       alertSettingsService,
       wsUptimeService,
       queueStatsService,
@@ -126,19 +122,19 @@ describe("TelegramUpdate", () => {
     };
   }
 
-  function walletPnlSummary(): WalletPnlSummary {
+  function walletPnlV2Summary(window: WalletPnlV2Window = "all"): WalletPnlV2Summary {
     return {
       address: "0xabc",
-      method: "resolved_only_local_trades",
-      period: { from: "2026-01-01T00:00:00.000Z", days: 30 },
+      window,
+      method: "cash_flow_wallet_activity",
+      realizedPnl: 5,
+      openPositionsValue: 1,
       totalPnl: 6,
-      totalRisk: 4,
-      roi: 1.5,
-      winRate: 1,
-      includedTradeCount: 1,
-      skippedTradeCount: 0,
+      byOperation: {},
+      hypothesisTypes: [],
       dataGaps: [],
-      limitations: ["This is not full on-chain wallet P&L."],
+      validated: true,
+      computedAt: new Date("2026-06-10T11:55:00.000Z").toISOString(),
     };
   }
 
@@ -231,68 +227,71 @@ describe("TelegramUpdate", () => {
   });
 
   it("просит адрес, если /pnl вызвали без аргумента", async () => {
-    const { update, getHistoricalPnl } = createUpdate();
+    const { update, getOrComputePnl } = createUpdate();
     const reply = vi.fn<(message: string) => void>();
 
     await update.handlePnl({ payload: "   ", reply } as ReplyContext);
 
-    expect(getHistoricalPnl).not.toHaveBeenCalled();
+    expect(getOrComputePnl).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith("Укажи адрес: /pnl <0xADDR> [days]");
   });
 
-  it("отвечает wallet P&L estimate для /pnl address days", async () => {
+  it("handlePnl ≤30 дней → окно 30d", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(
-      new Date("2026-02-01T00:00:00.000Z").getTime(),
+      new Date("2026-06-10T12:00:00.000Z").getTime(),
     );
-    const { update, getHistoricalPnl } = createUpdate();
+    const { update, getOrComputePnl } = createUpdate();
     const reply = vi.fn<(message: string, extra?: unknown) => void>();
-    getHistoricalPnl.mockResolvedValue(walletPnlSummary());
+    getOrComputePnl.mockResolvedValue(walletPnlV2Summary("30d"));
 
-    await update.handlePnl({ payload: "  0xabc  7  ", reply } as ReplyContext);
+    await update.handlePnl({ payload: "0xabc 30", reply } as ReplyContext);
 
-    expect(getHistoricalPnl).toHaveBeenCalledWith("0xabc", {
-      days: 7,
-      from: new Date("2026-01-25T00:00:00.000Z"),
-    });
+    expect(getOrComputePnl).toHaveBeenCalledWith("0xabc", "30d");
     expect(reply).toHaveBeenCalledWith(
-      expect.stringContaining("Wallet P&amp;L estimate"),
+      expect.stringContaining("Wallet P&amp;L"),
       { parse_mode: "HTML", disable_web_page_preview: true },
     );
     nowSpy.mockRestore();
   });
 
-  it("для invalid /pnl days использует default 30", async () => {
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(
-      new Date("2026-02-01T00:00:00.000Z").getTime(),
-    );
-    const { update, getHistoricalPnl } = createUpdate();
+  it("handlePnl ≤90 дней → окно 90d", async () => {
+    const { update, getOrComputePnl } = createUpdate();
     const reply = vi.fn<(message: string, extra?: unknown) => void>();
-    getHistoricalPnl.mockResolvedValue(walletPnlSummary());
+    getOrComputePnl.mockResolvedValue(walletPnlV2Summary("90d"));
+
+    await update.handlePnl({ payload: "0xabc 90", reply } as ReplyContext);
+
+    expect(getOrComputePnl).toHaveBeenCalledWith("0xabc", "90d");
+  });
+
+  it("handlePnl без days → окно all", async () => {
+    const { update, getOrComputePnl } = createUpdate();
+    const reply = vi.fn<(message: string, extra?: unknown) => void>();
+    getOrComputePnl.mockResolvedValue(walletPnlV2Summary("all"));
+
+    await update.handlePnl({ payload: "0xabc", reply } as ReplyContext);
+
+    expect(getOrComputePnl).toHaveBeenCalledWith("0xabc", "all");
+  });
+
+  it("handlePnl некорректный days → окно all", async () => {
+    const { update, getOrComputePnl } = createUpdate();
+    const reply = vi.fn<(message: string, extra?: unknown) => void>();
+    getOrComputePnl.mockResolvedValue(walletPnlV2Summary("all"));
 
     await update.handlePnl({ payload: "0xabc nope", reply } as ReplyContext);
 
-    expect(getHistoricalPnl).toHaveBeenCalledWith("0xabc", {
-      days: 30,
-      from: new Date("2026-01-02T00:00:00.000Z"),
-    });
-    nowSpy.mockRestore();
+    expect(getOrComputePnl).toHaveBeenCalledWith("0xabc", "all");
   });
 
-  it("для huge /pnl days использует default 30", async () => {
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(
-      new Date("2026-02-01T00:00:00.000Z").getTime(),
-    );
-    const { update, getHistoricalPnl } = createUpdate();
+  it("handlePnl >90 дней → окно all", async () => {
+    const { update, getOrComputePnl } = createUpdate();
     const reply = vi.fn<(message: string, extra?: unknown) => void>();
-    getHistoricalPnl.mockResolvedValue(walletPnlSummary());
+    getOrComputePnl.mockResolvedValue(walletPnlV2Summary("all"));
 
-    await update.handlePnl({ payload: "0xabc 999999999999999999999", reply } as ReplyContext);
+    await update.handlePnl({ payload: "0xabc 365", reply } as ReplyContext);
 
-    expect(getHistoricalPnl).toHaveBeenCalledWith("0xabc", {
-      days: 30,
-      from: new Date("2026-01-02T00:00:00.000Z"),
-    });
-    nowSpy.mockRestore();
+    expect(getOrComputePnl).toHaveBeenCalledWith("0xabc", "all");
   });
 
   it("ищет score по condition id, если slug не найден", async () => {

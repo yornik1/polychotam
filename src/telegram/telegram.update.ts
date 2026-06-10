@@ -4,8 +4,9 @@ import { Ctx, Command, Start, Update } from "nestjs-telegraf";
 import { MarketScoreService } from "../markets/market-score.service.js";
 import { MarketsService } from "../markets/markets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
-import { WalletsService } from "../wallets/wallets.service.js";
 import { WalletScoreService } from "../wallets/wallet-score.service.js";
+import { WalletPnlV2Service } from "../wallets/wallet-pnl-v2.service.js";
+import type { WalletPnlV2Window } from "../types/contracts.js";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Trade } from "../trades/trade.entity.js";
@@ -14,7 +15,6 @@ import { QueueStatsService } from "../queue/queue-stats.service.js";
 import { PolymarketWsStatusService } from "../polymarket/polymarket-ws-status.service.js";
 import { AlertSettingsService } from "../settings/alert-settings.service.js";
 import { WsUptimeService } from "../polymarket/ws-uptime.service.js";
-import { resolveWalletPnlPeriod } from "../wallets/wallet-pnl-period.util.js";
 import { isAdminChat } from "./admin-guard.util.js";
 import { TelegramService } from "./telegram.service.js";
 import {
@@ -29,7 +29,7 @@ import {
   formatStartMessage,
   formatStatsMessage,
   formatTopSmartWalletsMessage,
-  formatWalletPnlMessage,
+  formatWalletPnlV2Message,
   formatWsStatusMessage,
 } from "./telegram.formatter.js";
 
@@ -42,6 +42,24 @@ interface ReplyContext {
 const SCORE_CHOICES_LIMIT = 5;
 const SCORE_CHOICE_PATTERN = /^[1-9]\d*$/u;
 
+/**
+ * Преобразует число дней из аргумента /pnl в окно v2.
+ * ≤30 → "30d", ≤90 → "90d", иначе/без аргумента → "all".
+ */
+function resolvePnlV2Window(daysRaw: string | undefined): WalletPnlV2Window {
+  const days = Number(daysRaw);
+  if (!Number.isFinite(days) || days <= 0) {
+    return "all";
+  }
+  if (days <= 30) {
+    return "30d";
+  }
+  if (days <= 90) {
+    return "90d";
+  }
+  return "all";
+}
+
 @Injectable()
 @Update()
 export class TelegramUpdate {
@@ -50,7 +68,6 @@ export class TelegramUpdate {
   constructor(
     private readonly marketsService: MarketsService,
     private readonly marketScoreService: MarketScoreService,
-    private readonly walletsService: WalletsService,
     private readonly smartWalletsService: SmartWalletsService,
     private readonly queueStatsService: QueueStatsService,
     private readonly wsStatusService: PolymarketWsStatusService,
@@ -63,6 +80,7 @@ export class TelegramUpdate {
     private readonly configService: ConfigService,
     private readonly walletScoreService: WalletScoreService,
     private readonly telegramService: TelegramService,
+    private readonly walletPnlV2Service: WalletPnlV2Service,
   ) {
     this.adminChatId = this.configService.getOrThrow<string>("ADMIN_CHAT_ID");
   }
@@ -203,13 +221,10 @@ export class TelegramUpdate {
       return;
     }
 
-    const period = resolveWalletPnlPeriod(daysRaw);
-    const summary = await this.walletsService.getHistoricalPnl(address, {
-      days: period.days,
-      from: period.from,
-    });
+    const window = resolvePnlV2Window(daysRaw);
+    const summary = await this.walletPnlV2Service.getOrComputePnl(address, window);
 
-    await ctx.reply(formatWalletPnlMessage(summary), {
+    await ctx.reply(formatWalletPnlV2Message(summary), {
       parse_mode: "HTML",
       disable_web_page_preview: true,
     });

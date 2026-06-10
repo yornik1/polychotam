@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Market } from "../markets/market.entity.js";
 import { Wallet } from "../wallets/wallet.entity.js";
 import type { SmartWalletStats } from "../wallets/smart-wallets.service.js";
-import type { MarketScore, WalletPnlSummary, WalletScoreSpecialization } from "../types/contracts.js";
+import type { MarketScore, WalletPnlV2Summary, WalletScoreSpecialization } from "../types/contracts.js";
 import type { WalletScore } from "../wallets/wallet-score.entity.js";
 import {
   formatMarketMessage,
   formatMarketScoreChoicesMessage,
   formatMarketScoreMessage,
-  formatWalletPnlMessage,
+  formatWalletPnlV2Message,
   formatSmartWhaleAlertMessage,
   formatStartMessage,
   formatStatsMessage,
@@ -17,33 +17,34 @@ import {
 } from "./telegram.formatter.js";
 
 describe("telegram formatter", () => {
-  function walletPnlSummary(input: Partial<WalletPnlSummary> = {}): WalletPnlSummary {
+  function walletPnlV2Summary(input: Partial<WalletPnlV2Summary> = {}): WalletPnlV2Summary {
     return {
       address: "0xabcdef1234567890",
-      method: "resolved_only_local_trades",
-      period: { from: "2026-01-01T00:00:00.000Z", days: 30 },
-      totalPnl: 6,
-      totalRisk: 4,
-      roi: 1.5,
-      winRate: 1,
-      includedTradeCount: 1,
-      skippedTradeCount: 0,
+      window: "90d",
+      method: "cash_flow_wallet_activity",
+      realizedPnl: -199.4,
+      openPositionsValue: 191.06,
+      totalPnl: -8.34,
+      byOperation: {},
+      hypothesisTypes: [],
       dataGaps: [],
-      limitations: [
-        "Only local trades stored in this database are included.",
-        "Only resolved markets with winning_token_id are included.",
-        "Only maker_address matches are included; owner/taker identity is not expanded.",
-        "This is not full on-chain wallet P&L.",
-      ],
+      validated: true,
+      computedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
       ...input,
     };
   }
 
-  it("formatStartMessage возвращает список команд", () => {
-    expect(formatStartMessage()).toContain("/top");
-    expect(formatStartMessage()).toContain("/market");
-    expect(formatStartMessage()).toContain("/score");
-    expect(formatStartMessage()).toContain("/pnl");
+  it("formatStartMessage возвращает список команд без админских", () => {
+    const msg = formatStartMessage();
+    expect(msg).toContain("/top");
+    expect(msg).toContain("/market");
+    expect(msg).toContain("/score");
+    expect(msg).toContain("/pnl");
+    // админ-команды скрыты от пользователя
+    expect(msg).not.toContain("/queues");
+    expect(msg).not.toContain("/errors");
+    expect(msg).not.toContain("/ws");
+    expect(msg).not.toContain("/alerts");
   });
 
   it("formatMarketScoreMessage показывает score, вывод и причины", () => {
@@ -176,57 +177,37 @@ describe("telegram formatter", () => {
     expect(message).toContain("0xABCD");
   });
 
-  it("formatWalletPnlMessage показывает positive local resolved-only estimate", () => {
-    const message = formatWalletPnlMessage(walletPnlSummary());
+  it("formatWalletPnlV2Message показывает total/realized/open и служебную строку", () => {
+    const message = formatWalletPnlV2Message(walletPnlV2Summary());
 
-    expect(message).toContain("Wallet P&amp;L estimate");
+    expect(message).toContain("Wallet P&amp;L");
     expect(message).toContain("0xabcd");
-    expect(message).toContain("+$6");
-    expect(message).toContain("ROI: 150.0%");
-    expect(message).toContain("Win rate: 100.0%");
-    expect(message).toContain("Included trades: 1");
-    expect(message).toContain("Method: resolved_only_local_trades");
-    expect(message).toContain("local resolved-only estimate");
-    expect(message).toContain("not full on-chain wallet P&amp;L");
+    expect(message).toContain("Period: 90d");
+    expect(message).toContain("Total P&amp;L: -$8");
+    expect(message).toContain("Realized: -$199");
+    expect(message).toContain("Open positions: +$191");
+    expect(message).toContain("est. on-chain data · обновлено 5 мин назад");
   });
 
-  it("formatWalletPnlMessage показывает negative P&L и data gaps", () => {
-    const message = formatWalletPnlMessage(
-      walletPnlSummary({
-        totalPnl: -4,
-        totalRisk: 4,
-        roi: -1,
-        winRate: 0,
-        includedTradeCount: 1,
-        skippedTradeCount: 2,
-        dataGaps: ["unresolved_markets_excluded", "zero_risk_basis"],
-      }),
+  it("formatWalletPnlV2Message: свежий снапшот — «обновлено только что»", () => {
+    const message = formatWalletPnlV2Message(
+      walletPnlV2Summary({ computedAt: new Date().toISOString() }),
     );
 
-    expect(message).toContain("-$4");
-    expect(message).toContain("ROI: -100.0%");
-    expect(message).toContain("Skipped trades: 2");
-    expect(message).toContain("Data gaps:");
-    expect(message).toContain("unresolved_markets_excluded");
-    expect(message).toContain("zero_risk_basis");
+    expect(message).toContain("est. on-chain data · обновлено только что");
   });
 
-  it("formatWalletPnlMessage честно показывает отсутствие resolved данных", () => {
-    const message = formatWalletPnlMessage(
-      walletPnlSummary({
-        totalPnl: 0,
-        totalRisk: 0,
-        roi: null,
-        winRate: null,
-        includedTradeCount: 0,
-        skippedTradeCount: 3,
-        dataGaps: ["no_resolved_trades", "zero_risk_basis"],
-      }),
+  it("formatWalletPnlV2Message не содержит disclaimers", () => {
+    // даже невалидированный кошелёк не получает дисклеймеров — валидация внутренняя
+    const message = formatWalletPnlV2Message(
+      walletPnlV2Summary({ validated: false, dataGaps: ["unknown activity type X: 2 records"] }),
     );
 
-    expect(message).toContain("ROI: n/a");
-    expect(message).toContain("Win rate: n/a");
-    expect(message).toContain("No resolved local trades");
+    for (const banned of ["Limitations", "Data gaps", "Scope", "estimate", "not full"]) {
+      expect(message).not.toContain(banned);
+    }
+    // ровно одна служебная строка
+    expect(message.match(/est\. on-chain data/g)).toHaveLength(1);
   });
 
   it("formatSmartWhaleAlertMessage при null HR/ROI показывает n/a", () => {
