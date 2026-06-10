@@ -5,6 +5,7 @@ import { MarketScoreService } from "../markets/market-score.service.js";
 import { MarketsService } from "../markets/markets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { WalletsService } from "../wallets/wallets.service.js";
+import { WalletScoreService } from "../wallets/wallet-score.service.js";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Trade } from "../trades/trade.entity.js";
@@ -15,6 +16,7 @@ import { AlertSettingsService } from "../settings/alert-settings.service.js";
 import { WsUptimeService } from "../polymarket/ws-uptime.service.js";
 import { resolveWalletPnlPeriod } from "../wallets/wallet-pnl-period.util.js";
 import { isAdminChat } from "./admin-guard.util.js";
+import { TelegramService } from "./telegram.service.js";
 import {
   formatAlertsStatusMessage,
   formatErrorsMessage,
@@ -26,7 +28,7 @@ import {
   formatSmartWhalesListMessage,
   formatStartMessage,
   formatStatsMessage,
-  formatTopWhalesMessage,
+  formatTopSmartWalletsMessage,
   formatWalletPnlMessage,
   formatWsStatusMessage,
 } from "./telegram.formatter.js";
@@ -59,6 +61,8 @@ export class TelegramUpdate {
     private readonly alertSettingsService: AlertSettingsService,
     private readonly wsUptimeService: WsUptimeService,
     private readonly configService: ConfigService,
+    private readonly walletScoreService: WalletScoreService,
+    private readonly telegramService: TelegramService,
   ) {
     this.adminChatId = this.configService.getOrThrow<string>("ADMIN_CHAT_ID");
   }
@@ -132,8 +136,20 @@ export class TelegramUpdate {
 
   @Command("top")
   async handleTop(@Ctx() ctx: ReplyContext): Promise<void> {
-    const whaleAddresses = await this.walletsService.getTopWalletsByVolumeOnTopMarkets(10);
-    await ctx.reply(formatTopWhalesMessage(whaleAddresses), {
+    const wallets = await this.walletScoreService.getTopByScore(10);
+
+    // При пуле < 10 шлём admin-алерт (fire-and-forget)
+    if (wallets.length < 10) {
+      this.telegramService
+        .sendAdminAlert(`мало кандидатов в /top: ${wallets.length}`)
+        .catch((err: unknown) => {
+          this.logger.warn(
+            `Не удалось отправить admin alert для /top: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+    }
+
+    await ctx.reply(formatTopSmartWalletsMessage(wallets), {
       parse_mode: "HTML",
       disable_web_page_preview: true,
     });

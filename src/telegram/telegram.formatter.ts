@@ -6,8 +6,10 @@ import type {
   MarketScoreDataGapCode,
   MarketScoreReason,
   WalletPnlSummary,
+  WalletScoreSpecialization,
 } from "../types/contracts.js";
 import type { SmartWalletStats, SmartWalletDetail } from "../wallets/smart-wallets.service.js";
+import type { WalletScore } from "../wallets/wallet-score.entity.js";
 
 interface MarketTokenLike {
   outcome?: unknown;
@@ -296,6 +298,65 @@ export function formatTopWhalesMessage(
 
   if (whales.length === 0) {
     lines.push("Нет данных");
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Определяет человекочитаемую специализацию кошелька:
+ * категория с наибольшим resolvedCount, или Mixed если другой/равные.
+ */
+function formatSpecialization(spec: WalletScoreSpecialization): string {
+  const categories = ["politics", "sports", "crypto", "other"] as const;
+
+  let best: (typeof categories)[number] | null = null;
+  let bestCount = 0;
+  let hasTie = false;
+
+  for (const cat of categories) {
+    const count = spec[cat]?.resolvedCount ?? 0;
+    if (count > bestCount) {
+      bestCount = count;
+      best = cat;
+      hasTie = false;
+    } else if (count === bestCount && bestCount > 0) {
+      hasTie = true;
+    }
+  }
+
+  if (best === null || hasTie || best === "other") {
+    return "Mixed";
+  }
+
+  const labels: Record<"politics" | "sports" | "crypto", string> = {
+    politics: "Politics",
+    sports: "Sports",
+    crypto: "Crypto",
+  };
+
+  return labels[best];
+}
+
+/** HTML parse_mode: форматирует топ умных кошельков из wallet_scores. */
+export function formatTopSmartWalletsMessage(wallets: WalletScore[]): string {
+  const lines = ["\u{1F9E0} <b>Топ Smart Wallets:</b>", ""];
+
+  if (wallets.length === 0) {
+    lines.push("Рейтинг пока пуст: накапливаем данные для честного скоринга");
+    return lines.join("\n");
+  }
+
+  for (const [index, wallet] of wallets.entries()) {
+    // encodeURIComponent: адрес приходит из БД, в href он не должен ломать HTML/URL
+    const polymarketUrl = `https://polymarket.com/profile/${encodeURIComponent(wallet.address)}`;
+    const addr = escapeHtml(formatWalletAddress(wallet.address));
+    const pnl = wallet.pnl_90d !== null ? formatSignedCurrency(Number(wallet.pnl_90d)) : "n/a";
+    const winRate = wallet.win_rate !== null ? `${(Number(wallet.win_rate) * 100).toFixed(1)}%` : "n/a";
+    const spec = formatSpecialization(wallet.specialization);
+    lines.push(
+      `${index + 1}. <a href="${polymarketUrl}">${addr}</a> — PnL 90d: ${pnl} | WR: ${winRate} | ${escapeHtml(spec)} | ${wallet.sample_size} сделок`,
+    );
   }
 
   return lines.join("\n");

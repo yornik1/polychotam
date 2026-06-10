@@ -7,11 +7,14 @@ import { MarketsService } from "../markets/markets.service.js";
 import { MarketScoreService } from "../markets/market-score.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { WalletsService } from "../wallets/wallets.service.js";
-import type { MarketScore, WalletPnlSummary } from "../types/contracts.js";
+import type { MarketScore, WalletPnlSummary, WalletScoreSpecialization } from "../types/contracts.js";
 import type { QueueStatsService } from "../queue/queue-stats.service.js";
 import type { PolymarketWsStatusService } from "../polymarket/polymarket-ws-status.service.js";
 import type { AlertSettingsService } from "../settings/alert-settings.service.js";
 import type { WsUptimeService } from "../polymarket/ws-uptime.service.js";
+import type { WalletScoreService } from "../wallets/wallet-score.service.js";
+import type { TelegramService } from "./telegram.service.js";
+import type { WalletScore } from "../wallets/wallet-score.entity.js";
 import { TelegramUpdate } from "./telegram.update.js";
 
 interface ReplyContext {
@@ -23,6 +26,27 @@ interface ReplyContext {
 const ADMIN_CHAT_ID = "777000";
 
 describe("TelegramUpdate", () => {
+  function makeWalletScore(address = "0xABCDEF1234567890"): WalletScore {
+    const spec: WalletScoreSpecialization = {
+      politics: { winRate: 0.7, resolvedCount: 20 },
+      sports: { winRate: null, resolvedCount: 0 },
+      crypto: { winRate: null, resolvedCount: 0 },
+      other: { winRate: null, resolvedCount: 0 },
+    };
+    return {
+      address,
+      pnl_90d: "2000.00",
+      win_rate: "0.65",
+      profit_factor: "3.0",
+      specialization: spec,
+      sample_size: 50,
+      score: "80.0",
+      computed_at: new Date("2026-06-10T12:00:00.000Z"),
+      internal_created_at: new Date("2026-06-10T12:00:00.000Z"),
+      internal_updated_at: new Date("2026-06-10T12:00:00.000Z"),
+    };
+  }
+
   function createUpdate() {
     const findBySlug = vi.fn<(slug: string) => Promise<Market | null>>();
     const findByConditionId = vi.fn<(conditionId: string) => Promise<Market | null>>();
@@ -64,6 +88,8 @@ describe("TelegramUpdate", () => {
         throw new Error(`Unexpected key: ${key}`);
       }),
     };
+    const getTopByScore = vi.fn<(limit: number) => Promise<WalletScore[]>>();
+    const sendAdminAlert = vi.fn<(msg: string) => Promise<boolean>>().mockResolvedValue(true);
 
     const update = new TelegramUpdate(
       { findBySlug, findByConditionId, getScoreCandidates } as unknown as MarketsService,
@@ -77,6 +103,8 @@ describe("TelegramUpdate", () => {
       alertSettingsService as unknown as AlertSettingsService,
       wsUptimeService as unknown as WsUptimeService,
       configService as unknown as ConfigService,
+      { getTopByScore } as unknown as WalletScoreService,
+      { sendAdminAlert } as unknown as TelegramService,
     );
 
     return {
@@ -93,6 +121,8 @@ describe("TelegramUpdate", () => {
       wsUptimeService,
       queueStatsService,
       wsStatusService,
+      getTopByScore,
+      sendAdminAlert,
     };
   }
 
@@ -415,33 +445,61 @@ describe("TelegramUpdate", () => {
     expect(reply).toHaveBeenCalledWith("Не удалось получить список рынков. Попробуй /score <slug-or-condition_id>.");
   });
 
-  it("отвечает formatted top whales для /top", async () => {
-    const { update, getTopWalletsByVolumeOnTopMarkets } = createUpdate();
+  it("handleTop вызывает getTopByScore(10) и отвечает HTML-сообщением", async () => {
+    const { update, getTopByScore } = createUpdate();
     const reply = vi.fn<(message: string, extra?: unknown) => void>();
-    getTopWalletsByVolumeOnTopMarkets.mockResolvedValue([
-      { address: "0xABCDEF1234567890", totalVolume: "5000000", tradeCount: 150 },
-      { address: "0x1234567890ABCDEF", totalVolume: "3000000", tradeCount: 80 },
-    ]);
+    // 10 кошельков — полный пул, admin alert не нужен
+    getTopByScore.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) => makeWalletScore(`0xABCDEF${i.toString().padStart(4, "0")}000000`)),
+    );
 
     await update.handleTop({ reply } as ReplyContext);
 
-    expect(getTopWalletsByVolumeOnTopMarkets).toHaveBeenCalledWith(10);
+    expect(getTopByScore).toHaveBeenCalledWith(10);
     expect(reply).toHaveBeenCalledWith(
-      expect.stringContaining("0xABCD"),
+      expect.stringContaining("Smart Wallets"),
       expect.objectContaining({ parse_mode: "HTML" }),
     );
+  });
+
+  it("handleTop с пулом < 10 шлёт admin-алерт и не падает", async () => {
+    const { update, getTopByScore, sendAdminAlert } = createUpdate();
+    const reply = vi.fn<(message: string, extra?: unknown) => void>();
+    getTopByScore.mockResolvedValue([makeWalletScore(), makeWalletScore("0x1111222233334444")]);
+
+    await update.handleTop({ reply } as ReplyContext);
+
+    expect(sendAdminAlert).toHaveBeenCalledWith(expect.stringContaining("мало кандидатов"));
+    expect(sendAdminAlert).toHaveBeenCalledWith(expect.stringContaining("2"));
     expect(reply).toHaveBeenCalledWith(
-      expect.stringContaining("китов"),
+      expect.stringContaining("Smart Wallets"),
       expect.objectContaining({ parse_mode: "HTML" }),
     );
+  });
+
+  it("handleTop с 0 кошельков показывает заглушку и шлёт admin-алерт", async () => {
+    const { update, getTopByScore, sendAdminAlert } = createUpdate();
+    const reply = vi.fn<(message: string, extra?: unknown) => void>();
+    getTopByScore.mockResolvedValue([]);
+
+    await update.handleTop({ reply } as ReplyContext);
+
+    expect(sendAdminAlert).toHaveBeenCalledWith(expect.stringContaining("0"));
     expect(reply).toHaveBeenCalledWith(
-      expect.stringContaining("5,000,000"),
+      expect.stringContaining("накапливаем данные"),
       expect.objectContaining({ parse_mode: "HTML" }),
     );
-    expect(reply).toHaveBeenCalledWith(
-      expect.stringContaining("150 trades"),
-      expect.objectContaining({ parse_mode: "HTML" }),
-    );
+  });
+
+  it("handleTop не падает если admin-алерт бросает ошибку", async () => {
+    const { update, getTopByScore, sendAdminAlert } = createUpdate();
+    const reply = vi.fn<(message: string, extra?: unknown) => void>();
+    getTopByScore.mockResolvedValue([makeWalletScore()]);
+    sendAdminAlert.mockRejectedValue(new Error("telegram down"));
+
+    // не должно бросить
+    await expect(update.handleTop({ reply } as ReplyContext)).resolves.not.toThrow();
+    expect(reply).toHaveBeenCalled();
   });
 
   it("отвечает smart whale whitelist для /whales", async () => {
