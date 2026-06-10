@@ -65,6 +65,10 @@ describe("MarketSyncService", () => {
       ],
       ["condition_id"],
     );
+    // CLOB-путь не знает категорию: ключ category не должен попадать в upsert,
+    // иначе каждый CLOB-синк затирал бы значение, выставленное Gamma-кроном.
+    const upsertedRows = upsert.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(upsertedRows[0]).not.toHaveProperty("category");
   });
 
   it("сохраняет null winner поля если resolved token не найден", async () => {

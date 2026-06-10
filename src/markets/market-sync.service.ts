@@ -15,6 +15,7 @@ import {
   gammaVolume24hr,
   gammaWinningOutcome,
 } from "../polymarket/polymarket-gamma.util.js";
+import { mapGammaCategory } from "./market-category.util.js";
 import { Market } from "./market.entity.js";
 
 type MarketSnapshotRow = {
@@ -30,6 +31,8 @@ type MarketSnapshotRow = {
   liquidity: number;
   volume24hr: number;
   end_date_iso: string | null;
+  /** Опциональна: CLOB-путь не знает категорию и не должен затирать значение из Gamma при upsert. */
+  category?: string | null;
   internal_synced_at: Date;
 };
 
@@ -241,6 +244,7 @@ export class MarketSyncService {
       liquidity: gammaLiquidityNum(market),
       volume24hr: gammaVolume24hr(market),
       end_date_iso: endIso,
+      category: mapGammaCategory(market),
       internal_synced_at: syncedAt,
     };
   }

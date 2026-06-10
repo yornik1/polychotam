@@ -53,6 +53,10 @@ export class Market {
   @Column({ type: "text", nullable: true })
   end_date_iso!: string | null;
 
+  /** Категория маркета: politics / sports / crypto / other. Заполняется при синке из Gamma. */
+  @Column({ type: "varchar", length: 32, nullable: true })
+  category!: string | null;
+
   @Column({ type: "timestamptz", nullable: true })
   internal_synced_at!: Date | null;
 

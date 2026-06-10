@@ -18,4 +18,7 @@ export type GammaMarketRaw = Record<string, unknown> & {
   readonly liquidity?: unknown;
   readonly endDateIso?: unknown;
   readonly end_date_iso?: unknown;
+  readonly category?: unknown;
+  readonly tags?: unknown;
+  readonly series?: unknown;
 };
