@@ -80,9 +80,9 @@ describe("TelegramUpdate", () => {
       getReconnectsLast24h: vi.fn().mockReturnValue(0),
     };
     const configService = {
-      getOrThrow: vi.fn((key: string) => {
+      get: vi.fn((key: string) => {
         if (key === "ADMIN_CHAT_ID") return ADMIN_CHAT_ID;
-        throw new Error(`Unexpected key: ${key}`);
+        return undefined;
       }),
     };
     const getTopByScore = vi.fn<(limit: number) => Promise<WalletScore[]>>();
@@ -625,6 +625,111 @@ describe("TelegramUpdate", () => {
 
       expect(alertSettingsService.isAlertsEnabled).toHaveBeenCalled();
       expect(reply).toHaveBeenCalled();
+    });
+
+    it("ADMIN_CHAT_ID отсутствует, TELEGRAM_CHAT_ID задан — admin-команды работают из TELEGRAM_CHAT_ID-чата", async () => {
+      const FALLBACK_CHAT_ID = "123456";
+      const configService = {
+        get: vi.fn((key: string) => {
+          if (key === "TELEGRAM_CHAT_ID") return FALLBACK_CHAT_ID;
+          return undefined;
+        }),
+      };
+      const queueStatsService = {
+        getAllQueueCounts: vi.fn().mockResolvedValue([]),
+        getRecentErrors: vi.fn().mockResolvedValue({ entries: [], totalInTail: 0 }),
+      };
+      const update = new TelegramUpdate(
+        { findBySlug: vi.fn(), findByConditionId: vi.fn(), getScoreCandidates: vi.fn() } as unknown as MarketsService,
+        { scoreMarket: vi.fn() } as unknown as MarketScoreService,
+        { getActiveWhitelist: vi.fn(), getWalletDetail: vi.fn() } as unknown as SmartWalletsService,
+        queueStatsService as unknown as QueueStatsService,
+        { isConnected: vi.fn(), getSubscribedAssets: vi.fn(), getReconnectsLast24h: vi.fn() } as unknown as PolymarketWsStatusService,
+        {} as unknown as Repository<Trade>,
+        {} as unknown as Repository<Market>,
+        { isAlertsEnabled: vi.fn().mockResolvedValue(true), setAlertsEnabled: vi.fn() } as unknown as AlertSettingsService,
+        { getElapsedMs: vi.fn().mockReturnValue(0), getUptimeRatio24h: vi.fn().mockResolvedValue(0) } as unknown as WsUptimeService,
+        configService as unknown as ConfigService,
+        { getTopByScore: vi.fn() } as unknown as WalletScoreService,
+        { sendAdminAlert: vi.fn().mockResolvedValue(true) } as unknown as TelegramService,
+        { getOrComputePnl: vi.fn() } as unknown as WalletPnlV2Service,
+      );
+      const reply = vi.fn();
+
+      await update.handleQueues({ chat: { id: Number(FALLBACK_CHAT_ID) }, reply } as ReplyContext);
+
+      expect(queueStatsService.getAllQueueCounts).toHaveBeenCalled();
+      expect(reply).toHaveBeenCalled();
+    });
+
+    it("обе переменные отсутствуют — /queues молчит", async () => {
+      const configService = {
+        get: vi.fn().mockReturnValue(undefined),
+      };
+      const queueStatsService = {
+        getAllQueueCounts: vi.fn().mockResolvedValue([]),
+        getRecentErrors: vi.fn().mockResolvedValue({ entries: [], totalInTail: 0 }),
+      };
+      const update = new TelegramUpdate(
+        { findBySlug: vi.fn(), findByConditionId: vi.fn(), getScoreCandidates: vi.fn() } as unknown as MarketsService,
+        { scoreMarket: vi.fn() } as unknown as MarketScoreService,
+        { getActiveWhitelist: vi.fn(), getWalletDetail: vi.fn() } as unknown as SmartWalletsService,
+        queueStatsService as unknown as QueueStatsService,
+        { isConnected: vi.fn(), getSubscribedAssets: vi.fn(), getReconnectsLast24h: vi.fn() } as unknown as PolymarketWsStatusService,
+        {} as unknown as Repository<Trade>,
+        {} as unknown as Repository<Market>,
+        { isAlertsEnabled: vi.fn().mockResolvedValue(true), setAlertsEnabled: vi.fn() } as unknown as AlertSettingsService,
+        { getElapsedMs: vi.fn().mockReturnValue(0), getUptimeRatio24h: vi.fn().mockResolvedValue(0) } as unknown as WsUptimeService,
+        configService as unknown as ConfigService,
+        { getTopByScore: vi.fn() } as unknown as WalletScoreService,
+        { sendAdminAlert: vi.fn().mockResolvedValue(true) } as unknown as TelegramService,
+        { getOrComputePnl: vi.fn() } as unknown as WalletPnlV2Service,
+      );
+      const reply = vi.fn();
+
+      await update.handleQueues({ chat: { id: 777000 }, reply } as ReplyContext);
+
+      expect(queueStatsService.getAllQueueCounts).not.toHaveBeenCalled();
+      expect(reply).not.toHaveBeenCalled();
+    });
+
+    it("ADMIN_CHAT_ID задана — приоритет над TELEGRAM_CHAT_ID", async () => {
+      const configService = {
+        get: vi.fn((key: string) => {
+          if (key === "ADMIN_CHAT_ID") return "777000";
+          if (key === "TELEGRAM_CHAT_ID") return "123456";
+          return undefined;
+        }),
+      };
+      const queueStatsService = {
+        getAllQueueCounts: vi.fn().mockResolvedValue([]),
+        getRecentErrors: vi.fn().mockResolvedValue({ entries: [], totalInTail: 0 }),
+      };
+      const update = new TelegramUpdate(
+        { findBySlug: vi.fn(), findByConditionId: vi.fn(), getScoreCandidates: vi.fn() } as unknown as MarketsService,
+        { scoreMarket: vi.fn() } as unknown as MarketScoreService,
+        { getActiveWhitelist: vi.fn(), getWalletDetail: vi.fn() } as unknown as SmartWalletsService,
+        queueStatsService as unknown as QueueStatsService,
+        { isConnected: vi.fn(), getSubscribedAssets: vi.fn(), getReconnectsLast24h: vi.fn() } as unknown as PolymarketWsStatusService,
+        {} as unknown as Repository<Trade>,
+        {} as unknown as Repository<Market>,
+        { isAlertsEnabled: vi.fn().mockResolvedValue(true), setAlertsEnabled: vi.fn() } as unknown as AlertSettingsService,
+        { getElapsedMs: vi.fn().mockReturnValue(0), getUptimeRatio24h: vi.fn().mockResolvedValue(0) } as unknown as WsUptimeService,
+        configService as unknown as ConfigService,
+        { getTopByScore: vi.fn() } as unknown as WalletScoreService,
+        { sendAdminAlert: vi.fn().mockResolvedValue(true) } as unknown as TelegramService,
+        { getOrComputePnl: vi.fn() } as unknown as WalletPnlV2Service,
+      );
+      const reply = vi.fn();
+
+      // ADMIN_CHAT_ID=777000 — только этот чат должен пройти guard
+      await update.handleQueues({ chat: { id: 777000 }, reply } as ReplyContext);
+      expect(queueStatsService.getAllQueueCounts).toHaveBeenCalled();
+
+      // TELEGRAM_CHAT_ID=123456 — НЕ должен пройти, так как adminChatId=777000
+      const reply2 = vi.fn();
+      await update.handleQueues({ chat: { id: 123456 }, reply: reply2 } as ReplyContext);
+      expect(reply2).not.toHaveBeenCalled();
     });
   });
 });

@@ -51,14 +51,14 @@ describe("TelegramService", () => {
   });
 
   it("sendAdminAlert отправляет сообщение в ADMIN_CHAT_ID", async () => {
-    const getOrThrow = vi.fn((key: string) => {
-      if (key === "TELEGRAM_BOT_TOKEN") return "bot-token";
+    const getOrThrow = vi.fn().mockReturnValue("bot-token");
+    const get = vi.fn((key: string) => {
       if (key === "ADMIN_CHAT_ID") return "777000";
-      throw new Error(`Unexpected key: ${key}`);
+      return undefined;
     });
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     const service = new TelegramService(
-      { getOrThrow } as unknown as ConfigService,
+      { getOrThrow, get } as unknown as ConfigService,
       { telegram: { sendMessage } } as never,
     );
 
@@ -68,17 +68,66 @@ describe("TelegramService", () => {
   });
 
   it("sendAdminAlert возвращает false при ошибке отправки", async () => {
-    const getOrThrow = vi.fn((key: string) => {
-      if (key === "TELEGRAM_BOT_TOKEN") return "bot-token";
+    const getOrThrow = vi.fn().mockReturnValue("bot-token");
+    const get = vi.fn((key: string) => {
       if (key === "ADMIN_CHAT_ID") return "777000";
-      throw new Error(`Unexpected key: ${key}`);
+      return undefined;
     });
     const sendMessage = vi.fn().mockRejectedValue(new Error("network error"));
     const service = new TelegramService(
-      { getOrThrow } as unknown as ConfigService,
+      { getOrThrow, get } as unknown as ConfigService,
       { telegram: { sendMessage } } as never,
     );
 
     await expect(service.sendAdminAlert("admin-alert")).resolves.toBe(false);
+  });
+
+  it("sendAdminAlert использует TELEGRAM_CHAT_ID, если ADMIN_CHAT_ID не задан", async () => {
+    const getOrThrow = vi.fn().mockReturnValue("bot-token");
+    const get = vi.fn((key: string) => {
+      if (key === "TELEGRAM_CHAT_ID") return "123456";
+      return undefined;
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const service = new TelegramService(
+      { getOrThrow, get } as unknown as ConfigService,
+      { telegram: { sendMessage } } as never,
+    );
+
+    await expect(service.sendAdminAlert("admin-alert")).resolves.toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledWith("123456", "admin-alert");
+  });
+
+  it("sendAdminAlert возвращает false и не бросает, если обе переменные не заданы", async () => {
+    const getOrThrow = vi.fn().mockReturnValue("bot-token");
+    const get = vi.fn().mockReturnValue(undefined);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const service = new TelegramService(
+      { getOrThrow, get } as unknown as ConfigService,
+      { telegram: { sendMessage } } as never,
+    );
+
+    await expect(service.sendAdminAlert("admin-alert")).resolves.toBe(false);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("sendAdminAlert отдаёт приоритет ADMIN_CHAT_ID над TELEGRAM_CHAT_ID", async () => {
+    const getOrThrow = vi.fn().mockReturnValue("bot-token");
+    const get = vi.fn((key: string) => {
+      if (key === "ADMIN_CHAT_ID") return "777000";
+      if (key === "TELEGRAM_CHAT_ID") return "123456";
+      return undefined;
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const service = new TelegramService(
+      { getOrThrow, get } as unknown as ConfigService,
+      { telegram: { sendMessage } } as never,
+    );
+
+    await expect(service.sendAdminAlert("admin-alert")).resolves.toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledWith("777000", "admin-alert");
   });
 });

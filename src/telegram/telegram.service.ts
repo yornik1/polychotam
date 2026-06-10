@@ -34,11 +34,16 @@ export class TelegramService {
   }
 
   async sendAdminAlert(message: string): Promise<boolean> {
-    const chatId = this.configService.getOrThrow<string>("ADMIN_CHAT_ID").trim();
-    if (chatId.length === 0) {
-      this.logger.warn("ADMIN_CHAT_ID пустой, admin alert пропущен");
+    // Приоритет: ADMIN_CHAT_ID → TELEGRAM_CHAT_ID → отключено
+    const raw =
+      this.configService.get<string>("ADMIN_CHAT_ID")?.trim() ||
+      this.configService.get<string>("TELEGRAM_CHAT_ID")?.trim() ||
+      null;
+    if (raw === null || raw.length === 0) {
+      this.logger.warn(`ADMIN_CHAT_ID/TELEGRAM_CHAT_ID не заданы, admin-алерт пропущен: ${message}`);
       return false;
     }
+    const chatId = raw;
 
     try {
       await this.bot.telegram.sendMessage(chatId, message);

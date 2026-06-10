@@ -82,10 +82,15 @@ export class TelegramUpdate {
     private readonly telegramService: TelegramService,
     private readonly walletPnlV2Service: WalletPnlV2Service,
   ) {
-    this.adminChatId = this.configService.getOrThrow<string>("ADMIN_CHAT_ID");
+    // Приоритет: ADMIN_CHAT_ID → TELEGRAM_CHAT_ID → null (admin-функции отключены)
+    const raw =
+      this.configService.get<string>("ADMIN_CHAT_ID")?.trim() ||
+      this.configService.get<string>("TELEGRAM_CHAT_ID")?.trim() ||
+      null;
+    this.adminChatId = raw !== null && raw.length > 0 ? raw : null;
   }
 
-  private readonly adminChatId: string;
+  private readonly adminChatId: string | null;
 
   @Start()
   async handleStart(@Ctx() ctx: ReplyContext): Promise<void> {
