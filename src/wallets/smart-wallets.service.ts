@@ -130,28 +130,80 @@ export class SmartWalletsService {
       this.mapCandidateToWallet(candidate, now),
     );
     const selectedStats = selectedRows.map(({ internal_updated_at: _internalUpdatedAt, ...row }) => row);
+    const selectedAddresses = selectedStats.map((wallet) => wallet.address);
+    let deactivated: string[] = [];
+    let hasMutations = false;
 
-    const existingActiveWallets = await this.smartWalletRepository.find({
-      where: { active: true },
-    });
-    const deactivated = this.resolveDeactivations(
-      existingActiveWallets,
-      new Set(selectedStats.map((wallet) => wallet.address.toLowerCase())),
-      selectedStats.length,
-      thresholds.minSelectedForDeactivation,
-    );
-
-    if (options.dryRun !== true) {
+    if (options.dryRun === true) {
+      const existingActiveWallets = await this.smartWalletRepository.find({
+        where: { active: true },
+      });
+      deactivated = this.resolveDeactivations(
+        existingActiveWallets,
+        new Set(selectedAddresses.map((address) => address.toLowerCase())),
+        selectedStats.length,
+        thresholds.minSelectedForDeactivation,
+      );
+    } else {
       await this.smartWalletRepository.manager.transaction(async (manager) => {
         const walletRepository = manager.getRepository(SmartWallet);
-        if (selectedRows.length > 0) {
-          await walletRepository.upsert(selectedRows, ["address"]);
+        const existingSelectedWallets = await this.loadExistingWalletsByAddress(
+          walletRepository,
+          selectedAddresses,
+        );
+        const existingSelectedWalletsByAddress = this.indexWalletsByNormalizedAddress(
+          existingSelectedWallets,
+        );
+        const redundantSelectedWalletAddresses =
+          selectedStats.length >= thresholds.minSelectedForDeactivation
+            ? existingSelectedWallets
+                .filter((wallet) => {
+                  const normalized = this.normalizeAddress(wallet.address);
+                  const canonicalWallet = existingSelectedWalletsByAddress.get(normalized);
+                  return (
+                    canonicalWallet !== undefined &&
+                    canonicalWallet.address !== wallet.address &&
+                    wallet.source !== "manual"
+                  );
+                })
+                .map((wallet) => wallet.address.trim())
+            : [];
+        const existingActiveWallets = await walletRepository.find({
+          where: { active: true },
+        });
+        deactivated = this.resolveDeactivations(
+          existingActiveWallets,
+          new Set(selectedAddresses.map((address) => address.toLowerCase())),
+          selectedStats.length,
+          thresholds.minSelectedForDeactivation,
+        );
+        if (redundantSelectedWalletAddresses.length > 0) {
+          deactivated = Array.from(
+            new Set([...deactivated, ...redundantSelectedWalletAddresses]),
+          );
         }
+
+        for (const selectedRow of selectedRows) {
+          const existingWallet = existingSelectedWalletsByAddress.get(selectedRow.address);
+          if (existingWallet?.source === "manual") {
+            continue;
+          }
+
+          if (existingWallet === undefined) {
+            await walletRepository.insert(selectedRow);
+          } else {
+            await walletRepository.update({ address: existingWallet.address }, selectedRow);
+          }
+          hasMutations = true;
+        }
+
         if (deactivated.length > 0) {
           await walletRepository.update({ address: In(deactivated) }, { active: false });
+          hasMutations = true;
         }
+
       });
-      if (selectedRows.length > 0 || deactivated.length > 0) {
+      if (hasMutations) {
         this.invalidateCache();
       }
     }
@@ -345,15 +397,20 @@ export class SmartWalletsService {
     options: SmartWalletRefreshOptions,
   ): SmartWalletRefreshThresholds {
     return {
-      freshnessDays: this.normalizePositiveInt(options.freshnessDays, 90),
-      minResolvedTrades: this.normalizePositiveInt(options.minResolvedTrades, 10),
+      freshnessDays: this.normalizePositiveInt(options.freshnessDays, 90, "freshnessDays"),
+      minResolvedTrades: this.normalizePositiveInt(
+        options.minResolvedTrades,
+        10,
+        "minResolvedTrades",
+      ),
       minWinRate: this.normalizePositiveNumber(options.minWinRate, 0.6),
       minTotalRisk: this.normalizePositiveNumber(options.minTotalRisk, 1000),
       minSelectedForDeactivation: this.normalizePositiveInt(
         options.minSelectedForDeactivation,
         2,
+        "minSelectedForDeactivation",
       ),
-      limit: this.normalizePositiveInt(options.limit, 20),
+      limit: this.normalizePositiveInt(options.limit, 20, "limit"),
     };
   }
 
@@ -515,6 +572,51 @@ export class SmartWalletsService {
     return reasons;
   }
 
+  private async loadExistingWalletsByAddress(
+    walletRepository: Repository<SmartWallet>,
+    addresses: readonly string[],
+  ): Promise<SmartWallet[]> {
+    if (addresses.length === 0) {
+      return [];
+    }
+
+    return walletRepository
+      .createQueryBuilder("wallet")
+      .where("LOWER(wallet.address) IN (:...addresses)", { addresses })
+      .orderBy(
+        "CASE WHEN wallet.source = 'manual' THEN 0 WHEN wallet.address = LOWER(wallet.address) THEN 1 ELSE 2 END",
+        "ASC",
+      )
+      .addOrderBy("wallet.address", "ASC")
+      .getMany();
+  }
+
+  private indexWalletsByNormalizedAddress(wallets: readonly SmartWallet[]): Map<string, SmartWallet> {
+    const indexed = new Map<string, SmartWallet>();
+    for (const wallet of wallets) {
+      const normalized = this.normalizeAddress(wallet.address);
+      const existing = indexed.get(normalized);
+      if (existing === undefined) {
+        indexed.set(normalized, wallet);
+        continue;
+      }
+
+      if (wallet.source === "manual" && existing.source !== "manual") {
+        indexed.set(normalized, wallet);
+        continue;
+      }
+
+      if (existing.source === "manual") {
+        continue;
+      }
+
+      if (existing.address !== normalized && wallet.address === normalized) {
+        indexed.set(normalized, wallet);
+      }
+    }
+    return indexed;
+  }
+
   private resolveDeactivations(
     existingActiveWallets: readonly SmartWallet[],
     selectedAddresses: ReadonlySet<string>,
@@ -616,12 +718,20 @@ export class SmartWalletsService {
     return value.toFixed(digits);
   }
 
-  private normalizePositiveInt(value: number | undefined, fallback: number): number {
-    if (value === undefined || !Number.isFinite(value) || value <= 0) {
+  private normalizePositiveInt(
+    value: number | undefined,
+    fallback: number,
+    label: string,
+  ): number {
+    if (value === undefined) {
       return fallback;
     }
 
-    return Math.floor(value);
+    if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
+      throw new Error(`${label} must be a positive integer`);
+    }
+
+    return value;
   }
 
   private normalizePositiveNumber(value: number | undefined, fallback: number): number {

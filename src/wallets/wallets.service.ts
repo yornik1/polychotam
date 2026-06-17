@@ -67,35 +67,18 @@ export class WalletsService {
         continue;
       }
 
-      const size = Number(trade.size);
-      const price = Number(trade.price);
-      if (!Number.isFinite(size) || !Number.isFinite(price)) {
+      const tradePnl = calculateResolvedTradePnl(trade, winningTokenId);
+      if (tradePnl === "invalid_numeric" || tradePnl === "unsupported_side") {
         continue;
       }
 
-      const isWinningToken = trade.asset_id === winningTokenId;
-      const side = trade.side.toUpperCase();
-
-      if (side === "BUY") {
-        if (isWinningToken) {
-          totalWon += size * (1 - price);
-          winningTrades += 1;
-        } else {
-          totalLost += size * price;
-        }
-        resolvedTrades += 1;
-        continue;
+      if (tradePnl.isWinningTrade) {
+        totalWon += tradePnl.pnl;
+        winningTrades += 1;
+      } else {
+        totalLost += tradePnl.risk;
       }
-
-      if (side === "SELL") {
-        if (isWinningToken) {
-          totalLost += size * (1 - price);
-        } else {
-          totalWon += size * price;
-          winningTrades += 1;
-        }
-        resolvedTrades += 1;
-      }
+      resolvedTrades += 1;
     }
 
     await this.upsert({

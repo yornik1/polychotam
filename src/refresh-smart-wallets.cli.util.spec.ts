@@ -16,7 +16,15 @@ describe("refresh-smart-wallets cli util", () => {
 
   it("parses positive numeric env values and throws on malformed values", () => {
     expect(parsePositiveInt(undefined, 7, "SMART_WALLETS_REFRESH_LIMIT")).toBe(7);
-    expect(parsePositiveInt("4.9", undefined, "SMART_WALLETS_REFRESH_LIMIT")).toBe(4);
+    expect(() => parsePositiveInt("4.9", undefined, "SMART_WALLETS_REFRESH_LIMIT")).toThrow(
+      "SMART_WALLETS_REFRESH_LIMIT must be a positive integer",
+    );
+    expect(() => parsePositiveInt("1e3", undefined, "SMART_WALLETS_REFRESH_LIMIT")).toThrow(
+      "SMART_WALLETS_REFRESH_LIMIT must be a positive integer",
+    );
+    expect(() => parsePositiveInt("0x10", undefined, "SMART_WALLETS_REFRESH_LIMIT")).toThrow(
+      "SMART_WALLETS_REFRESH_LIMIT must be a positive integer",
+    );
     expect(parsePositiveNumber("0.75", undefined, "SMART_WALLETS_REFRESH_MIN_WIN_RATE")).toBe(0.75);
 
     expect(() => parsePositiveInt("0", undefined, "SMART_WALLETS_REFRESH_LIMIT")).toThrow(
