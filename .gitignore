@@ -21,6 +21,9 @@ lerna-debug.log*
 .env.test
 .env.production
 
+# graphify output (локальный артефакт, не индексировать)
+/graphify-out
+
 # temp directory
 .temp
 .tmp
