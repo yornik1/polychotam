@@ -59,21 +59,6 @@ export class TradeEnrichmentProcessor extends WorkerHost {
         this.logger.warn(
           `Enrichment не нашёл maker address для ${job.data.tradeRecordId} после ${job.attemptsMade + 1} попыток, пропускаю`,
         );
-        const msg =
-          "Trade enrichment did not find maker address (исчерпаны попытки, джоб завершён без throw)";
-        this.bullNdjsonLog.append({
-          eventType: "enrichment_maker_not_found_final",
-          source: "TradeEnrichmentProcessor",
-          queue: TRADE_ENRICHMENT_QUEUE_NAME,
-          jobId: job.id,
-          jobName: job.name,
-          message: msg,
-          failedReason: msg,
-          attemptsMade: job.attemptsMade + 1,
-          maxAttempts,
-          data: job.data,
-          oneLine: `[${TRADE_ENRICHMENT_QUEUE_NAME}] ${job.name} id=${job.id}: ${msg}`,
-        });
         return;
       }
       throw new Error("Trade enrichment did not find maker address");

@@ -103,7 +103,7 @@ describe("TradeEnrichmentProcessor", () => {
     expect(maybeSendTradeAlert).not.toHaveBeenCalled();
   });
 
-  it("на последней попытке не бросает, а завершается без обновления", async () => {
+  it("на последней попытке не пишет ожидаемый miss в error NDJSON", async () => {
     const findMakerAddress = vi.fn().mockResolvedValue(null);
     const updateMakerAddress = vi.fn().mockResolvedValue(undefined);
     const maybeSendTradeAlert = vi.fn().mockResolvedValue(false);
@@ -127,13 +127,7 @@ describe("TradeEnrichmentProcessor", () => {
 
     expect(updateMakerAddress).not.toHaveBeenCalled();
     expect(maybeSendTradeAlert).not.toHaveBeenCalled();
-    expect(ndjson.append).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: "enrichment_maker_not_found_final",
-        jobId: "test-enrich-job-id",
-        failedReason: expect.stringContaining("maker address"),
-      }),
-    );
+    expect(ndjson.append).not.toHaveBeenCalled();
   });
 
   it("onWorkerFailed не логирует промежуточный ретрай", () => {
