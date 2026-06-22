@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"python3 -c \\\"import json; json.load(open('/Users/mich/.claude.json')); print('JSON valid')\\\"\",\"description\":\"Validate JSON syntax\"}",
+  "error": "Exit code 1\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import json; json.load(open('/Users/mich/.claude.json')); print('JSON valid')\n                 ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 298, in load\n    return loads(fp.read(),\n        cls=cls, object_hook=object_hook,\n        parse_float=parse_float, parse_int=parse_int,\n   ...",
+  "timestamp": "2026-06-09T22:11:45.097Z",
+  "retry_count": 1
+}

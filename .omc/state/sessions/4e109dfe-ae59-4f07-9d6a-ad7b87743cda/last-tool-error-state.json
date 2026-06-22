@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"npm show @modelcontextprotocol/server-github version 2>&1 && npm show @github/mcp-server version 2>&1\",\"description\":\"Check available GitHub MCP package versions\"}",
+  "error": "Exit code 1\n2025.4.8\nnpm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/@github%2fmcp-server - Not found\nnpm error 404\nnpm error 404  '@github/mcp-server@*' is not in this registry.\nnpm error 404\nnpm error 404 Note that you can also install from a\nnpm error 404 tarball, folder, http url, or git url.\nnpm error A complete log of this run can be found in: /Users/mich/.npm/_logs/2026-06-09T22_20_56_636Z-debug-0.log",
+  "timestamp": "2026-06-09T22:20:57.066Z",
+  "retry_count": 1
+}

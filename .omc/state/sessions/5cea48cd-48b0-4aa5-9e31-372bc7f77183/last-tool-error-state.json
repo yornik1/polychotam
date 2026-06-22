@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"uv tool install --upgrade graphifyy -q 2>&1 | tail -3\\n_UV_PY=$(uv tool run --from graphifyy graphify python -c \\\"import sys; print(sys.executable)\\\" 2>/dev/null)\\necho \\\"Python: $_UV_PY\\\"...",
+  "error": "Exit code 126\nPython: \n(eval):4: permission denied:",
+  "timestamp": "2026-06-16T20:34:56.660Z",
+  "retry_count": 2
+}

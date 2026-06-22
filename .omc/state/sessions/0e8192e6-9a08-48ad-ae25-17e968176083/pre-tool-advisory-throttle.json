@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": {
+    "79a93d4a2f8f50b95f852280616242fee1855dc99a3c75211917f55e72e95fae": {
+      "last_emitted_at_ms": 1781042951911,
+      "message": "Use parallel execution for independent tasks. Use run_in_background for long operations (npm install, builds, tests)."
+    },
+    "ec40f01b86edd9246b266d6d1292dff7c7b9028845fbb852af7b2758a7c9fc02": {
+      "last_emitted_at_ms": 1781042313308,
+      "message": "Spawning agent: general-purpose (inherit) | Task: GitHub MCP authentication"
+    }
+  },
+  "updated_at": "2026-06-09T22:09:11.911Z"
+}

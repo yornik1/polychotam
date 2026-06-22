@@ -1,0 +1,17 @@
+# Ralph progress — Polychotam Phase 1 (PnL v2 + Smart Score)
+План: .omc/plans/phase1-pnl-v2-smart-score.md (ralplan-консенсус достигнут 2026-06-10)
+
+[init] PRD создан: 14 историй T0–T13 по графу зависимостей.
+[факты] /activity: offset-пагинация, start/end инклюзивны, типы TRADE/REDEEM/REWARD/MAKER_REBATE; lb-api окна 1d/7d/30d/all, включает MTM; дедуп только на граничном ts.
+[T0] done: contracts.ts расширен (WalletPnlMethod + 13 типов), typecheck/test зелёные, 196/196
+[T1] done: DataApiClient (/activity, /positions sizeThreshold=0, lb-api typed windows), 23 spec, зарегистрирован в polymarket.module, env POLYMARKET_LB_API_URL
+[T2] done: computeCashFlowPnl — usdcSize, MAKER_REBATE в притоках, hypothesisTypes для SPLIT/MERGE/CONVERSION, 24 spec, эмпирический кейс −199.40+191.06=−8.34
+[T10] done: admin-guard.util + sendAdminAlert + гард /queues|/errors|/ws|/alerts, ADMIN_CHAT_ID через getOrThrow, e2e застаблен, 260 тестов
+[note] Параллельные исполнители дважды приняли in-flight правки соседа за «pre-existing failure» — финальная верификация батча обязательна (делается).
+[T3] done: wallet_pnl_snapshots entity (PK address+window, boundary_ids jsonb) + миграция 1781069316384, цикл run/revert/run проверен, 260 тестов. Заметка: migration:generate тянет дрейф соседних entity — миграции выверять руками.
+[T7] done: markets.category (nullable) + mapGammaCategory (51 тест) + backfill через Gamma-cron upsert. ОРКЕСТРАТОР ПОЙМАЛ БАГ исполнителя: CLOB-путь syncSnapshot писал category:null в upsert и затирал бы Gamma-значение каждый синк. Фикс: category опциональна в MarketSnapshotRow, CLOB-строка её не содержит + регрессионный тест.
+[T4] done: WalletPnlV2Service — инкрементальный all + полный пересчёт 30d/90d, boundary-дедуп со счётчиками, атомарный save, 13 spec, 314 тестов. ДЛЯ OPUS-РЕВЬЮ: identity-ключ хранится в boundary_ids[].transactionHash (переиспользование поля под строку-ключ) — проверить приемлемость.
+[T5/T6/T8] done + opus-гейт APPROVE (методология PnL и веса). Оркестратор: вшил validateWallet в ветку pnl-recalc процессора (+тест порядка), Number() для SMART_TOP_MIN_WIN_RATE, строгий > 0.55 под acceptance, NaN-guard, тест all-pass/30d-null, комментарий watermark скользящих окон. 366 тестов.
+[known-unknown] Оконность MTM в lb 30d (MTM позиций старше 30д) — проверить на живых кошельках при калибровке ε (open question opus-ревью).
+[T9/T11] done: rolling-счётчик consecutive_low_winrate_days (миграция применена), деактивация после 14 дней + admin-алерт; /top из getTopByScore(10) с деградацией и алертом «мало кандидатов». Оркестратор чинил слияние: stub rollingDeactivationCheck в spec процессора, encodeURIComponent адреса в href, неиспользуемый импорт. 387 тестов.
+[T12] done: /pnl → formatWalletPnlV2Message (total/realized/open + «est. on-chain data · обновлено N мин назад»), старый formatWalletPnlMessage удалён из telegram, /start без админ-команд. Исполнитель оборвался на хвосте — оркестратор дочистил spec (3 старых теста → 3 новых V2, неиспользуемые импорты/конструктор-арг). 389 тестов.

@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"npm run typecheck 2>&1\"}",
+  "error": "Exit code 2\n\n> polychotam@0.1.0 typecheck\n> tsc --noEmit\n\nsrc/wallets/wallet-pnl-v2.util.spec.ts(173,36): error TS2322: Type 'string' is not assignable to type '\"BUY\" | \"SELL\" | undefined'.",
+  "timestamp": "2026-06-10T16:33:46.024Z",
+  "retry_count": 1
+}
