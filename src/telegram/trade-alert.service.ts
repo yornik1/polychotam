@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { MarketsService } from "../markets/markets.service.js";
 import type { SmartWalletStats } from "../wallets/smart-wallets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
-import { AlertSettingsService } from "../settings/alert-settings.service.js";
+import { FollowedWalletsService } from "../wallets/followed-wallets.service.js";
 import { formatSmartWhaleAlertMessage } from "./telegram.formatter.js";
 import { TelegramService } from "./telegram.service.js";
 
@@ -28,7 +28,7 @@ export class TradeAlertService {
     private readonly configService: ConfigService,
     private readonly marketsService: MarketsService,
     private readonly smartWalletsService: SmartWalletsService,
-    private readonly alertSettingsService: AlertSettingsService,
+    private readonly followedWalletsService: FollowedWalletsService,
     private readonly telegramService: TelegramService,
   ) {}
 
@@ -55,13 +55,10 @@ export class TradeAlertService {
       return false;
     }
 
-    if (!(await this.alertSettingsService.isAlertsEnabled())) {
-      return false;
-    }
-
-    // Главное изменение: проверяем smart wallet whitelist вместо volume-based top whales
-    const isSmartWhale = await this.smartWalletsService.isSmartWhale(address);
-    if (!isSmartWhale) {
+    // Per-wallet подписки: алерт шлём только если пользователь подписан на этот кошелёк
+    // (заменяет глобальный on/off + whitelist-гейт). Подписки управляются из карточки /whales.
+    const isFollowed = await this.followedWalletsService.isFollowed(address);
+    if (!isFollowed) {
       return false;
     }
 

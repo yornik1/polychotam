@@ -1,12 +1,18 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Ctx, Command, Start, Update } from "nestjs-telegraf";
+import { Ctx, Command, Start, Action, Update } from "nestjs-telegraf";
 import { MarketScoreService } from "../markets/market-score.service.js";
 import { MarketsService } from "../markets/markets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { WalletScoreService } from "../wallets/wallet-score.service.js";
 import { WalletPnlV2Service } from "../wallets/wallet-pnl-v2.service.js";
 import { CandidateDiscoveryService } from "../wallets/candidate-discovery.service.js";
+import { FollowedWalletsService } from "../wallets/followed-wallets.service.js";
+import {
+  buildWalletCardKeyboard,
+  buildWhalesKeyboard,
+  type InlineKeyboard,
+} from "./wallet-keyboard.util.js";
 import type { WalletPnlV2Window } from "../types/contracts.js";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -14,19 +20,16 @@ import { Trade } from "../trades/trade.entity.js";
 import { Market } from "../markets/market.entity.js";
 import { QueueStatsService } from "../queue/queue-stats.service.js";
 import { PolymarketWsStatusService } from "../polymarket/polymarket-ws-status.service.js";
-import { AlertSettingsService } from "../settings/alert-settings.service.js";
 import { WsUptimeService } from "../polymarket/ws-uptime.service.js";
 import { isAdminChat } from "./admin-guard.util.js";
 import { TelegramService } from "./telegram.service.js";
 import {
-  formatAlertsStatusMessage,
   formatErrorsMessage,
   formatMarketMessage,
   formatMarketScoreChoicesMessage,
   formatMarketScoreMessage,
   formatQueuesMessage,
   formatSmartWhaleDetailMessage,
-  formatSmartWhalesListMessage,
   formatStartMessage,
   formatStatsMessage,
   formatTopSmartWalletsMessage,
@@ -38,6 +41,26 @@ interface ReplyContext {
   payload?: string;
   chat?: { id: number };
   reply(message: string, extra?: unknown): Promise<unknown> | unknown;
+}
+
+/** Контекст callback-запроса (нажатие inline-кнопки). */
+interface CallbackContext {
+  /** Отправитель callback — для admin-guard (callback идёт по from.id, не chat.id). */
+  from?: { id: number };
+  /** Результат regex из @Action — match[1] содержит адрес. */
+  match?: RegExpExecArray | null;
+  answerCbQuery(text?: string): Promise<unknown> | unknown;
+  editMessageText(text: string, extra?: unknown): Promise<unknown> | unknown;
+  reply(message: string, extra?: unknown): Promise<unknown> | unknown;
+}
+
+/** Telegram-extra с inline-клавиатурой. */
+function inlineKeyboardExtra(keyboard: InlineKeyboard): Record<string, unknown> {
+  return {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    reply_markup: { inline_keyboard: keyboard },
+  };
 }
 
 const SCORE_CHOICES_LIMIT = 5;
@@ -76,13 +99,13 @@ export class TelegramUpdate {
     private readonly tradeRepository: Repository<Trade>,
     @InjectRepository(Market)
     private readonly marketRepository: Repository<Market>,
-    private readonly alertSettingsService: AlertSettingsService,
     private readonly wsUptimeService: WsUptimeService,
     private readonly configService: ConfigService,
     private readonly walletScoreService: WalletScoreService,
     private readonly telegramService: TelegramService,
     private readonly walletPnlV2Service: WalletPnlV2Service,
     private readonly candidateDiscoveryService: CandidateDiscoveryService,
+    private readonly followedWalletsService: FollowedWalletsService,
   ) {
     // Приоритет: ADMIN_CHAT_ID → TELEGRAM_CHAT_ID → null (admin-функции отключены)
     const raw =
@@ -215,10 +238,127 @@ export class TelegramUpdate {
       await ctx.reply("Smart whale whitelist пуст.");
       return;
     }
-    await ctx.reply(formatSmartWhalesListMessage(whitelist), {
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    });
+    // Список — inline-кнопки: тап открывает карточку (адрес в callback_data, без копипасты).
+    const keyboard = buildWhalesKeyboard(whitelist);
+    await ctx.reply(
+      "🧠 <b>Smart-кошельки</b> — тапни кошелёк для карточки и подписки:",
+      inlineKeyboardExtra(keyboard),
+    );
+  }
+
+  /** Список кошельков, на которые подписан пользователь. */
+  @Command("following")
+  async handleFollowing(@Ctx() ctx: ReplyContext): Promise<void> {
+    const addresses = await this.followedWalletsService.list();
+    if (addresses.length === 0) {
+      await ctx.reply("Ты пока ни за кем не следишь. Открой /whales и нажми 🔔 Следить.");
+      return;
+    }
+    const lines = ["🔔 <b>Слежу за:</b>", ""];
+    for (const [i, addr] of addresses.entries()) {
+      const url = `https://polymarket.com/profile/${addr}`;
+      lines.push(`${i + 1}. <a href="${url}">${addr}</a>`);
+    }
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML", disable_web_page_preview: true });
+  }
+
+  /**
+   * Admin-guard для callback'ов: бот личный, мутации (follow/unfollow) должны
+   * идти только из admin-чата. Callback приходит по from.id, а не chat.id.
+   */
+  private async ensureCallbackAdmin(ctx: CallbackContext): Promise<boolean> {
+    if (isAdminChat(ctx.from?.id, this.adminChatId)) {
+      return true;
+    }
+    await ctx.answerCbQuery();
+    return false;
+  }
+
+  /** Callback: пагинация списка /whales (перерисовка на месте). */
+  @Action(/^wp:(\d+)$/u)
+  async handleWhalesPage(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
+    const page = Number(ctx.match?.[1] ?? "0");
+    const whitelist = await this.smartWalletsService.getActiveWhitelist();
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      "🧠 <b>Smart-кошельки</b> — тапни кошелёк для карточки и подписки:",
+      inlineKeyboardExtra(buildWhalesKeyboard(whitelist, page)),
+    );
+  }
+
+  /** Callback: показать карточку кошелька (кнопка из /whales). */
+  @Action(/^w:(.+)$/u)
+  async handleWalletCard(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
+    const address = ctx.match?.[1]?.trim() ?? "";
+    if (address.length === 0) {
+      await ctx.answerCbQuery("Не удалось определить кошелёк");
+      return;
+    }
+    await ctx.answerCbQuery();
+    await this.renderWalletCard(ctx, address);
+  }
+
+  /** Callback: подписаться на кошелёк. */
+  @Action(/^f:(.+)$/u)
+  async handleFollow(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
+    const address = ctx.match?.[1]?.trim() ?? "";
+    if (address.length === 0) {
+      await ctx.answerCbQuery("Не удалось определить кошелёк");
+      return;
+    }
+    await this.followedWalletsService.follow(address);
+    await ctx.answerCbQuery("🔔 Теперь слежу за этим кошельком");
+    await this.renderWalletCard(ctx, address);
+  }
+
+  /** Callback: отписаться от кошелька. */
+  @Action(/^u:(.+)$/u)
+  async handleUnfollow(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
+    const address = ctx.match?.[1]?.trim() ?? "";
+    if (address.length === 0) {
+      await ctx.answerCbQuery("Не удалось определить кошелёк");
+      return;
+    }
+    await this.followedWalletsService.unfollow(address);
+    await ctx.answerCbQuery("🔕 Больше не слежу");
+    await this.renderWalletCard(ctx, address);
+  }
+
+  /** Callback: PnL кошелька (отдельным сообщением, карточка остаётся). */
+  @Action(/^p:(.+)$/u)
+  async handleCardPnl(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
+    const address = ctx.match?.[1]?.trim() ?? "";
+    if (address.length === 0) {
+      await ctx.answerCbQuery("Не удалось определить кошелёк");
+      return;
+    }
+    await ctx.answerCbQuery();
+    try {
+      const summary = await this.walletPnlV2Service.getOrComputePnl(address, "all");
+      await ctx.reply(formatWalletPnlV2Message(summary), {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
+    } catch (error: unknown) {
+      await ctx.reply(`Не удалось получить PnL: ${this.toErrorMessage(error)}`);
+    }
+  }
+
+  /** Рендерит карточку кошелька с актуальной кнопкой подписки (edit на месте). */
+  private async renderWalletCard(ctx: CallbackContext, address: string): Promise<void> {
+    const detail = await this.smartWalletsService.getWalletDetail(address);
+    const followed = await this.followedWalletsService.isFollowed(address);
+    const keyboard = buildWalletCardKeyboard(address, followed);
+    const text =
+      detail !== null
+        ? formatSmartWhaleDetailMessage(detail)
+        : `Кошелёк <code>${address}</code> (нет метрик в whitelist).`;
+    await ctx.editMessageText(text, inlineKeyboardExtra(keyboard));
   }
 
   @Command("whale")
@@ -268,23 +408,12 @@ export class TelegramUpdate {
   @Command("alerts")
   async handleAlerts(@Ctx() ctx: ReplyContext): Promise<void> {
     if (!isAdminChat(ctx.chat?.id, this.adminChatId)) return;
-    const raw = ctx.payload?.trim() ?? "";
-    const arg = raw.toLowerCase();
-
-    if (arg === "off") {
-      await this.alertSettingsService.setAlertsEnabled(false);
-      await ctx.reply(formatAlertsStatusMessage(false));
-      return;
-    }
-
-    if (arg === "on") {
-      await this.alertSettingsService.setAlertsEnabled(true);
-      await ctx.reply(formatAlertsStatusMessage(true));
-      return;
-    }
-
-    const enabled = await this.alertSettingsService.isAlertsEnabled();
-    await ctx.reply(formatAlertsStatusMessage(enabled));
+    // Глобального on/off больше нет — алерты теперь per-wallet (подписки).
+    await ctx.reply(
+      "Алерты теперь по подписке на конкретные кошельки.\n" +
+        "Открой /whales → тапни кошелёк → 🔔 Следить.\n" +
+        "Кого слушаю: /following",
+    );
   }
 
   @Command("stats")

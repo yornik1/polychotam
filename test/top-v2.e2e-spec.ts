@@ -19,6 +19,7 @@ import { WsConnectionEvent } from "../src/polymarket/ws-connection-event.entity.
 import { AppModule } from "../src/app.module.js";
 import { Market } from "../src/markets/market.entity.js";
 import { SmartWallet } from "../src/wallets/smart-wallet.entity.js";
+import { FollowedWallet } from "../src/wallets/followed-wallet.entity.js";
 import { WalletPnlSnapshot } from "../src/wallets/wallet-pnl-snapshot.entity.js";
 import { WalletScore } from "../src/wallets/wallet-score.entity.js";
 import { PolymarketHttpClient } from "../src/polymarket/polymarket-http.client.js";
@@ -157,6 +158,8 @@ describe("/top v2 acceptance (e2e)", () => {
       .useValue(emptyRepo)
       .overrideProvider(getRepositoryToken(SmartWallet))
       .useValue(emptyRepo)
+      .overrideProvider(getRepositoryToken(FollowedWallet))
+      .useValue(emptyRepo)
       .overrideProvider(getRepositoryToken(WalletPnlSnapshot))
       .useValue(emptyRepo)
       .overrideProvider(getRepositoryToken(WalletScore))
@@ -211,6 +214,7 @@ describe("/top v2 acceptance (e2e)", () => {
         use: vi.fn(),
         start: vi.fn(),
         command: vi.fn(),
+        action: vi.fn(),
         catch: vi.fn(),
         telegram: { sendMessage: vi.fn().mockResolvedValue({}) },
       })

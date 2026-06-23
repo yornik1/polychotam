@@ -9,11 +9,11 @@ import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import type { MarketScore, WalletPnlV2Summary, WalletPnlV2Window, WalletScoreSpecialization } from "../types/contracts.js";
 import type { QueueStatsService } from "../queue/queue-stats.service.js";
 import type { PolymarketWsStatusService } from "../polymarket/polymarket-ws-status.service.js";
-import type { AlertSettingsService } from "../settings/alert-settings.service.js";
 import type { WsUptimeService } from "../polymarket/ws-uptime.service.js";
 import type { WalletScoreService } from "../wallets/wallet-score.service.js";
 import type { WalletPnlV2Service } from "../wallets/wallet-pnl-v2.service.js";
 import type { CandidateDiscoveryService } from "../wallets/candidate-discovery.service.js";
+import type { FollowedWalletsService } from "../wallets/followed-wallets.service.js";
 import type { TelegramService } from "./telegram.service.js";
 import type { WalletScore } from "../wallets/wallet-score.entity.js";
 import { TelegramUpdate } from "./telegram.update.js";
@@ -22,6 +22,18 @@ interface ReplyContext {
   payload?: string;
   chat?: { id: number };
   reply: (message: string, extra?: unknown) => unknown;
+}
+
+interface CallbackContext {
+  match?: RegExpExecArray | null;
+  answerCbQuery: (text?: string) => unknown;
+  editMessageText: (text: string, extra?: unknown) => unknown;
+  reply: (message: string, extra?: unknown) => unknown;
+}
+
+/** Хелпер: эмулирует ctx.match из @Action(/^x:(.+)$/). */
+function cbMatch(prefix: string, address: string): RegExpExecArray {
+  return new RegExp(`^${prefix}:(.+)$`, "u").exec(`${prefix}:${address}`)!;
 }
 
 const ADMIN_CHAT_ID = "777000";
@@ -65,9 +77,6 @@ describe("TelegramUpdate", () => {
     }>>>();
     const getWalletDetail = vi.fn<(address: string) => Promise<unknown>>();
     const getOrComputePnl = vi.fn<(address: string, window: WalletPnlV2Window) => Promise<WalletPnlV2Summary>>();
-    const isAlertsEnabled = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
-    const setAlertsEnabled = vi.fn<(v: boolean) => Promise<void>>().mockResolvedValue(undefined);
-    const alertSettingsService = { isAlertsEnabled, setAlertsEnabled };
     const getElapsedMs = vi.fn<() => number>().mockReturnValue(0);
     const getUptimeRatio24h = vi.fn<() => Promise<number>>().mockResolvedValue(0.5);
     const wsUptimeService = { getElapsedMs, getUptimeRatio24h };
@@ -94,6 +103,10 @@ describe("TelegramUpdate", () => {
     const scoreAndPromoteDiscovered = vi
       .fn()
       .mockResolvedValue({ evaluated: 3, promoted: 1, rejected: 2, failed: 0 });
+    const follow = vi.fn().mockResolvedValue(undefined);
+    const unfollow = vi.fn().mockResolvedValue(undefined);
+    const isFollowed = vi.fn<(a: string) => Promise<boolean>>().mockResolvedValue(false);
+    const listFollowed = vi.fn<() => Promise<string[]>>().mockResolvedValue([]);
 
     const update = new TelegramUpdate(
       { findBySlug, findByConditionId, getScoreCandidates } as unknown as MarketsService,
@@ -103,17 +116,21 @@ describe("TelegramUpdate", () => {
       wsStatusService as unknown as PolymarketWsStatusService,
       {} as unknown as Repository<Trade>,
       {} as unknown as Repository<Market>,
-      alertSettingsService as unknown as AlertSettingsService,
       wsUptimeService as unknown as WsUptimeService,
       configService as unknown as ConfigService,
       { getTopByScore } as unknown as WalletScoreService,
       { sendAdminAlert } as unknown as TelegramService,
       { getOrComputePnl } as unknown as WalletPnlV2Service,
       { discoverFromTopMarkets, scoreAndPromoteDiscovered } as unknown as CandidateDiscoveryService,
+      { follow, unfollow, isFollowed, list: listFollowed } as unknown as FollowedWalletsService,
     );
 
     return {
       update,
+      follow,
+      unfollow,
+      isFollowed,
+      listFollowed,
       findBySlug,
       findByConditionId,
       getScoreCandidates,
@@ -121,7 +138,6 @@ describe("TelegramUpdate", () => {
       getActiveWhitelist,
       getWalletDetail,
       getOrComputePnl,
-      alertSettingsService,
       wsUptimeService,
       queueStatsService,
       wsStatusService,
@@ -551,41 +567,29 @@ describe("TelegramUpdate", () => {
     await update.handleWhales({ reply } as ReplyContext);
 
     expect(getActiveWhitelist).toHaveBeenCalledTimes(1);
+    // Список рендерится inline-клавиатурой: текст-приглашение + reply_markup с кнопкой w:<addr>
     expect(reply).toHaveBeenCalledWith(
-      expect.stringContaining("Smart Whale Whitelist"),
-      expect.objectContaining({ parse_mode: "HTML", disable_web_page_preview: true }),
+      expect.stringContaining("Smart-кошельки"),
+      expect.objectContaining({
+        reply_markup: expect.objectContaining({
+          inline_keyboard: expect.arrayContaining([
+            expect.arrayContaining([
+              expect.objectContaining({ callback_data: "w:0xabcdef1234567890" }),
+            ]),
+          ]),
+        }),
+      }),
     );
   });
 
-  it("/alerts on включает алерты и отвечает статусом", async () => {
-    const { update, alertSettingsService } = createUpdate();
-    const reply = vi.fn<(message: string) => void>();
-
-    await update.handleAlerts({ payload: "on", chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
-
-    expect(alertSettingsService.setAlertsEnabled).toHaveBeenCalledWith(true);
-    expect(reply).toHaveBeenCalledWith(expect.stringMatching(/вкл/i));
-  });
-
-  it("/alerts off выключает алерты", async () => {
-    const { update, alertSettingsService } = createUpdate();
-    const reply = vi.fn<(message: string) => void>();
-
-    await update.handleAlerts({ payload: "off", chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
-
-    expect(alertSettingsService.setAlertsEnabled).toHaveBeenCalledWith(false);
-    expect(reply).toHaveBeenCalledWith(expect.stringMatching(/выкл/i));
-  });
-
-  it("/alerts без аргумента показывает текущий статус", async () => {
-    const { update, alertSettingsService } = createUpdate();
-    alertSettingsService.isAlertsEnabled.mockResolvedValue(false);
+  it("/alerts из admin-чата объясняет per-wallet модель (ведёт на /whales)", async () => {
+    const { update } = createUpdate();
     const reply = vi.fn<(message: string) => void>();
 
     await update.handleAlerts({ payload: "", chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
 
-    expect(alertSettingsService.isAlertsEnabled).toHaveBeenCalled();
-    expect(reply).toHaveBeenCalledWith(expect.stringMatching(/выкл/i));
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("/whales"));
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("/following"));
   });
 
   describe("admin guard", () => {
@@ -639,22 +643,20 @@ describe("TelegramUpdate", () => {
     });
 
     it("/alerts не отвечает не-admin чату", async () => {
-      const { update, alertSettingsService } = createUpdate();
+      const { update } = createUpdate();
       const reply = vi.fn();
 
       await update.handleAlerts({ payload: "", chat: { id: 999 }, reply } as ReplyContext);
 
-      expect(alertSettingsService.isAlertsEnabled).not.toHaveBeenCalled();
       expect(reply).not.toHaveBeenCalled();
     });
 
     it("/alerts отвечает admin чату", async () => {
-      const { update, alertSettingsService } = createUpdate();
+      const { update } = createUpdate();
       const reply = vi.fn();
 
       await update.handleAlerts({ payload: "", chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
 
-      expect(alertSettingsService.isAlertsEnabled).toHaveBeenCalled();
       expect(reply).toHaveBeenCalled();
     });
 
@@ -678,7 +680,6 @@ describe("TelegramUpdate", () => {
         { isConnected: vi.fn(), getSubscribedAssets: vi.fn(), getReconnectsLast24h: vi.fn() } as unknown as PolymarketWsStatusService,
         {} as unknown as Repository<Trade>,
         {} as unknown as Repository<Market>,
-        { isAlertsEnabled: vi.fn().mockResolvedValue(true), setAlertsEnabled: vi.fn() } as unknown as AlertSettingsService,
         { getElapsedMs: vi.fn().mockReturnValue(0), getUptimeRatio24h: vi.fn().mockResolvedValue(0) } as unknown as WsUptimeService,
         configService as unknown as ConfigService,
         { getTopByScore: vi.fn() } as unknown as WalletScoreService,
@@ -688,6 +689,12 @@ describe("TelegramUpdate", () => {
           discoverFromTopMarkets: vi.fn(),
           scoreAndPromoteDiscovered: vi.fn(),
         } as unknown as CandidateDiscoveryService,
+        {
+          follow: vi.fn(),
+          unfollow: vi.fn(),
+          isFollowed: vi.fn().mockResolvedValue(false),
+          list: vi.fn().mockResolvedValue([]),
+        } as unknown as FollowedWalletsService,
       );
       const reply = vi.fn();
 
@@ -713,7 +720,6 @@ describe("TelegramUpdate", () => {
         { isConnected: vi.fn(), getSubscribedAssets: vi.fn(), getReconnectsLast24h: vi.fn() } as unknown as PolymarketWsStatusService,
         {} as unknown as Repository<Trade>,
         {} as unknown as Repository<Market>,
-        { isAlertsEnabled: vi.fn().mockResolvedValue(true), setAlertsEnabled: vi.fn() } as unknown as AlertSettingsService,
         { getElapsedMs: vi.fn().mockReturnValue(0), getUptimeRatio24h: vi.fn().mockResolvedValue(0) } as unknown as WsUptimeService,
         configService as unknown as ConfigService,
         { getTopByScore: vi.fn() } as unknown as WalletScoreService,
@@ -723,6 +729,12 @@ describe("TelegramUpdate", () => {
           discoverFromTopMarkets: vi.fn(),
           scoreAndPromoteDiscovered: vi.fn(),
         } as unknown as CandidateDiscoveryService,
+        {
+          follow: vi.fn(),
+          unfollow: vi.fn(),
+          isFollowed: vi.fn().mockResolvedValue(false),
+          list: vi.fn().mockResolvedValue([]),
+        } as unknown as FollowedWalletsService,
       );
       const reply = vi.fn();
 
@@ -752,7 +764,6 @@ describe("TelegramUpdate", () => {
         { isConnected: vi.fn(), getSubscribedAssets: vi.fn(), getReconnectsLast24h: vi.fn() } as unknown as PolymarketWsStatusService,
         {} as unknown as Repository<Trade>,
         {} as unknown as Repository<Market>,
-        { isAlertsEnabled: vi.fn().mockResolvedValue(true), setAlertsEnabled: vi.fn() } as unknown as AlertSettingsService,
         { getElapsedMs: vi.fn().mockReturnValue(0), getUptimeRatio24h: vi.fn().mockResolvedValue(0) } as unknown as WsUptimeService,
         configService as unknown as ConfigService,
         { getTopByScore: vi.fn() } as unknown as WalletScoreService,
@@ -762,6 +773,12 @@ describe("TelegramUpdate", () => {
           discoverFromTopMarkets: vi.fn(),
           scoreAndPromoteDiscovered: vi.fn(),
         } as unknown as CandidateDiscoveryService,
+        {
+          follow: vi.fn(),
+          unfollow: vi.fn(),
+          isFollowed: vi.fn().mockResolvedValue(false),
+          list: vi.fn().mockResolvedValue([]),
+        } as unknown as FollowedWalletsService,
       );
       const reply = vi.fn();
 
@@ -773,6 +790,174 @@ describe("TelegramUpdate", () => {
       const reply2 = vi.fn();
       await update.handleQueues({ chat: { id: 123456 }, reply: reply2 } as ReplyContext);
       expect(reply2).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("слежение за кошельками", () => {
+    it("/following с пустым списком подсказывает открыть /whales", async () => {
+      const { update, listFollowed } = createUpdate();
+      listFollowed.mockResolvedValue([]);
+      const reply = vi.fn();
+
+      await update.handleFollowing({ reply } as ReplyContext);
+
+      expect(reply).toHaveBeenCalledWith(expect.stringContaining("/whales"));
+    });
+
+    it("/following выводит список followed", async () => {
+      const { update, listFollowed } = createUpdate();
+      listFollowed.mockResolvedValue(["0xaaa", "0xbbb"]);
+      const reply = vi.fn();
+
+      await update.handleFollowing({ reply } as ReplyContext);
+
+      expect(reply).toHaveBeenCalledWith(
+        expect.stringContaining("0xaaa"),
+        expect.objectContaining({ parse_mode: "HTML" }),
+      );
+    });
+
+    it("w:<addr> рендерит карточку через editMessageText с кнопкой Следить (не подписан)", async () => {
+      const { update, getWalletDetail, isFollowed } = createUpdate();
+      getWalletDetail.mockResolvedValue({
+        address: "0xabc",
+        active: true,
+        hit_rate: "0.8",
+        sum_pnl: "1000",
+        roi_pct: "36.4",
+        whale_trade_count: 50,
+        notes: "",
+        source: "discovered",
+        recentTrades: [],
+      });
+      isFollowed.mockResolvedValue(false);
+      const answerCbQuery = vi.fn();
+      const editMessageText = vi.fn();
+
+      await update.handleWalletCard({
+        from: { id: Number(ADMIN_CHAT_ID) },
+        match: cbMatch("w", "0xabc"),
+        answerCbQuery,
+        editMessageText,
+        reply: vi.fn(),
+      } as CallbackContext);
+
+      expect(answerCbQuery).toHaveBeenCalled();
+      expect(editMessageText).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          reply_markup: expect.objectContaining({
+            inline_keyboard: expect.arrayContaining([
+              expect.arrayContaining([
+                expect.objectContaining({ callback_data: "f:0xabc" }),
+              ]),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it("f:<addr> подписывает и перерисовывает карточку с кнопкой Не следить", async () => {
+      const { update, follow, isFollowed, getWalletDetail } = createUpdate();
+      getWalletDetail.mockResolvedValue(null);
+      isFollowed.mockResolvedValue(true); // после follow
+      const answerCbQuery = vi.fn();
+      const editMessageText = vi.fn();
+
+      await update.handleFollow({
+        from: { id: Number(ADMIN_CHAT_ID) },
+        match: cbMatch("f", "0xabc"),
+        answerCbQuery,
+        editMessageText,
+        reply: vi.fn(),
+      } as CallbackContext);
+
+      expect(follow).toHaveBeenCalledWith("0xabc");
+      expect(editMessageText).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          reply_markup: expect.objectContaining({
+            inline_keyboard: expect.arrayContaining([
+              expect.arrayContaining([
+                expect.objectContaining({ callback_data: "u:0xabc" }),
+              ]),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it("u:<addr> отписывает", async () => {
+      const { update, unfollow, getWalletDetail } = createUpdate();
+      getWalletDetail.mockResolvedValue(null);
+      const answerCbQuery = vi.fn();
+      const editMessageText = vi.fn();
+
+      await update.handleUnfollow({
+        from: { id: Number(ADMIN_CHAT_ID) },
+        match: cbMatch("u", "0xabc"),
+        answerCbQuery,
+        editMessageText,
+        reply: vi.fn(),
+      } as CallbackContext);
+
+      expect(unfollow).toHaveBeenCalledWith("0xabc");
+    });
+
+    it("p:<addr> отвечает PnL отдельным сообщением", async () => {
+      const { update, getOrComputePnl } = createUpdate();
+      getOrComputePnl.mockResolvedValue(walletPnlV2Summary());
+      const answerCbQuery = vi.fn();
+      const reply = vi.fn();
+
+      await update.handleCardPnl({
+        from: { id: Number(ADMIN_CHAT_ID) },
+        match: cbMatch("p", "0xabc"),
+        answerCbQuery,
+        editMessageText: vi.fn(),
+        reply,
+      } as CallbackContext);
+
+      expect(getOrComputePnl).toHaveBeenCalledWith("0xabc", "all");
+      expect(reply).toHaveBeenCalled();
+    });
+
+    it("wp:<page> перерисовывает список на нужной странице", async () => {
+      const { update, getActiveWhitelist } = createUpdate();
+      getActiveWhitelist.mockResolvedValue([
+        { address: "0xaaa", active: true, hit_rate: "0.8", sum_pnl: "1", roi_pct: "1", whale_trade_count: 1, notes: "", source: "discovered" },
+      ]);
+      const answerCbQuery = vi.fn();
+      const editMessageText = vi.fn();
+
+      await update.handleWhalesPage({
+        from: { id: Number(ADMIN_CHAT_ID) },
+        match: cbMatch("wp", "0"),
+        answerCbQuery,
+        editMessageText,
+        reply: vi.fn(),
+      } as CallbackContext);
+
+      expect(getActiveWhitelist).toHaveBeenCalled();
+      expect(editMessageText).toHaveBeenCalled();
+    });
+
+    it("callback от не-admin (from.id чужой) отвергается без мутации", async () => {
+      const { update, follow } = createUpdate();
+      const answerCbQuery = vi.fn();
+      const editMessageText = vi.fn();
+
+      await update.handleFollow({
+        from: { id: 999999 },
+        match: cbMatch("f", "0xabc"),
+        answerCbQuery,
+        editMessageText,
+        reply: vi.fn(),
+      } as CallbackContext);
+
+      expect(follow).not.toHaveBeenCalled();
+      expect(editMessageText).not.toHaveBeenCalled();
+      expect(answerCbQuery).toHaveBeenCalled(); // спиннер закрыт
     });
   });
 });

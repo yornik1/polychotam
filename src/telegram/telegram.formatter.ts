@@ -19,7 +19,7 @@ function asMarketTokens(tokens: unknown): MarketTokenLike[] {
   return Array.isArray(tokens) ? tokens.filter((token) => typeof token === "object" && token !== null) : [];
 }
 
-function formatCurrency(value: number): string {
+export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
@@ -52,7 +52,7 @@ function formatProbability(price: number): string {
   return `${percent >= 1 ? percent.toFixed(0) : percent.toFixed(1)}%`;
 }
 
-function formatWalletAddress(address: string): string {
+export function formatWalletAddress(address: string): string {
   const normalized = address.trim();
   if (normalized.length <= 10) {
     return normalized;
@@ -74,7 +74,8 @@ export function formatStartMessage(): string {
     "Polychotam Smart Whale Tracker",
     "",
     "Команды:",
-    "/whales — smart whale whitelist",
+    "/whales — smart-кошельки (тап → карточка, подписка)",
+    "/following — за кем слежу",
     "/whale &lt;addr&gt; — детали кошелька",
     "/pnl &lt;addr&gt; [days] — on-chain P&amp;L (30d/90d/all)",
     "/market &lt;slug&gt; — инфо по маркету",

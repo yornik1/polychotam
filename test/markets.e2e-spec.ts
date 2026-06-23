@@ -20,6 +20,7 @@ import { WsConnectionEvent } from "../src/polymarket/ws-connection-event.entity.
 import { AppModule } from "../src/app.module.js";
 import { Market } from "../src/markets/market.entity.js";
 import { SmartWallet } from "../src/wallets/smart-wallet.entity.js";
+import { FollowedWallet } from "../src/wallets/followed-wallet.entity.js";
 import { WalletPnlSnapshot } from "../src/wallets/wallet-pnl-snapshot.entity.js";
 import { WalletScore } from "../src/wallets/wallet-score.entity.js";
 import { PolymarketHttpClient } from "../src/polymarket/polymarket-http.client.js";
@@ -114,6 +115,8 @@ describe("GET /markets (e2e)", () => {
       .useValue(emptyRepo as Repository<Wallet>)
       .overrideProvider(getRepositoryToken(SmartWallet))
       .useValue(emptyRepo as Repository<SmartWallet>)
+      .overrideProvider(getRepositoryToken(FollowedWallet))
+      .useValue(emptyRepo as Repository<FollowedWallet>)
       .overrideProvider(getRepositoryToken(WalletPnlSnapshot))
       .useValue(emptyRepo as Repository<WalletPnlSnapshot>)
       .overrideProvider(getRepositoryToken(WalletScore))
@@ -168,6 +171,7 @@ describe("GET /markets (e2e)", () => {
         use: vi.fn(),
         start: vi.fn(),
         command: vi.fn(),
+        action: vi.fn(),
         catch: vi.fn(),
         telegram: { sendMessage: vi.fn() },
       })
