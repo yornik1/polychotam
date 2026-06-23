@@ -390,4 +390,114 @@ describe("DataApiClient", () => {
       await expect(client.fetchLbProfit("0xabc", "all")).rejects.toThrow(DataApiTimeoutError);
     });
   });
+
+  describe("fetchHolders", () => {
+    it("строит URL с market и limit, парсит массив групп холдеров", async () => {
+      const body = [
+        {
+          token: "tokenYes",
+          holders: [
+            { proxyWallet: "0xaaa", asset: "tokenYes", amount: 354.89, outcomeIndex: 1 },
+            { proxyWallet: "0xbbb", asset: "tokenYes", amount: 199.95, outcomeIndex: 1 },
+          ],
+        },
+      ];
+      const fetch = mockFetchOk(body);
+      vi.stubGlobal("fetch", fetch);
+
+      const client = new DataApiClient(makeConfig());
+      const result = await client.fetchHolders("0xcond", 50);
+
+      const url = capturedUrl(fetch);
+      expect(url).toContain("https://data-api.test/holders");
+      expect(url).toContain("market=0xcond");
+      expect(url).toContain("limit=50");
+      expect(result).toHaveLength(1);
+      expect(result[0]?.holders[0]?.proxyWallet).toBe("0xaaa");
+    });
+
+    it("при non-array payload — бросает ошибку формата", async () => {
+      vi.stubGlobal("fetch", mockFetchOk({ unexpected: true }));
+
+      const client = new DataApiClient(makeConfig());
+      await expect(client.fetchHolders("0xcond")).rejects.toThrow(/unexpected payload shape/);
+    });
+
+    it("при 5xx — бросает DataApiUpstreamError", async () => {
+      vi.stubGlobal("fetch", mockFetchStatus(503));
+
+      const client = new DataApiClient(makeConfig());
+      await expect(client.fetchHolders("0xcond")).rejects.toThrow(DataApiUpstreamError);
+    });
+  });
+
+  describe("fetchClosedPositions", () => {
+    it("строит URL с user и пагинируется по offset до неполной страницы", async () => {
+      const page1 = Array.from({ length: 500 }, (_, i) => ({
+        proxyWallet: "0xabc",
+        asset: `a${i}`,
+        conditionId: `c${i}`,
+        avgPrice: 0.4,
+        totalBought: 10,
+        realizedPnl: 1,
+      }));
+      const page2 = [
+        { proxyWallet: "0xabc", asset: "last", conditionId: "cl", avgPrice: 0.6, totalBought: 5, realizedPnl: -2 },
+      ];
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue(page1), text: vi.fn().mockResolvedValue("") })
+        .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue(page2), text: vi.fn().mockResolvedValue("") });
+      vi.stubGlobal("fetch", fetch);
+
+      const client = new DataApiClient(makeConfig());
+      const result = await client.fetchClosedPositions("0xabc");
+
+      expect(result).toHaveLength(501);
+      expect(capturedUrl(fetch, 0)).toContain("https://data-api.test/closed-positions");
+      expect(capturedUrl(fetch, 0)).toContain("user=0xabc");
+      expect(capturedUrl(fetch, 1)).toContain("offset=500");
+    });
+
+    it("при non-array payload — бросает ошибку формата", async () => {
+      vi.stubGlobal("fetch", mockFetchOk({ unexpected: true }));
+      const client = new DataApiClient(makeConfig());
+      await expect(client.fetchClosedPositions("0xabc")).rejects.toThrow(/unexpected payload shape/);
+    });
+  });
+
+  describe("fetchRecentTrades", () => {
+    it("по умолчанию без market, с limit/offset; парсит массив", async () => {
+      const body = [
+        { proxyWallet: "0x111", conditionId: "0xc", side: "BUY", size: 5, price: 0.6, timestamp: 1700 },
+      ];
+      const fetch = mockFetchOk(body);
+      vi.stubGlobal("fetch", fetch);
+
+      const client = new DataApiClient(makeConfig());
+      const result = await client.fetchRecentTrades({ limit: 25 });
+
+      const url = capturedUrl(fetch);
+      expect(url).toContain("https://data-api.test/trades");
+      expect(url).toContain("limit=25");
+      expect(url).not.toContain("market=");
+      expect(result[0]?.proxyWallet).toBe("0x111");
+    });
+
+    it("с market — добавляет фильтр market", async () => {
+      const fetch = mockFetchOk([]);
+      vi.stubGlobal("fetch", fetch);
+
+      const client = new DataApiClient(makeConfig());
+      await client.fetchRecentTrades({ market: "0xcond", limit: 10 });
+
+      expect(capturedUrl(fetch)).toContain("market=0xcond");
+    });
+
+    it("при non-array payload — бросает ошибку формата", async () => {
+      vi.stubGlobal("fetch", mockFetchOk({ nope: 1 }));
+      const client = new DataApiClient(makeConfig());
+      await expect(client.fetchRecentTrades()).rejects.toThrow(/unexpected payload shape/);
+    });
+  });
 });

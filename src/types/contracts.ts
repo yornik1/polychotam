@@ -195,6 +195,81 @@ export interface WalletPositionRaw {
   outcome?: string;
 }
 
+/** Холдер токена из data-api /holders (поля соответствуют ответу внешнего API). */
+export interface WalletHolderRaw {
+  proxyWallet: string;
+  asset: string;
+  amount: number;
+  outcomeIndex: number;
+  name?: string;
+  pseudonym?: string;
+  bio?: string;
+  displayUsernamePublic?: boolean;
+  verified?: boolean;
+  profileImage?: string;
+  profileImageOptimized?: string;
+}
+
+/** Группа холдеров по токену (Yes/No) из data-api /holders. */
+export interface MarketHoldersRaw {
+  token: string;
+  holders: WalletHolderRaw[];
+}
+
+/** Закрытая позиция из data-api /closed-positions (поля соответствуют ответу внешнего API). */
+export interface ClosedPositionRaw {
+  proxyWallet: string;
+  asset: string;
+  conditionId: string;
+  avgPrice: number;
+  totalBought: number;
+  realizedPnl: number;
+  curPrice?: number;
+  outcome?: string;
+  outcomeIndex?: number;
+  title?: string;
+  slug?: string;
+  endDate?: string;
+  timestamp?: number;
+}
+
+/** Статистика внешнего (discovered) кошелька, выведенная из closed-positions. */
+export interface DiscoveredWalletStats {
+  /** Число resolved позиций (закрытых ставок). */
+  sampleSize: number;
+  /** Доля выигрышных позиций (realizedPnl>0) среди resolved, 0..1. */
+  winRate: number;
+  /** Суммарный realized PnL в USDC. */
+  realizedPnl: number;
+  /** ROI = realizedPnl / суммарный totalBought (cost basis); 0 при нулевой базе. */
+  roi: number;
+  /** Средняя цена входа (avgPrice) = средняя implied вероятность, которую платил кошелёк. */
+  avgEntryPrice: number;
+  /** Edge: winRate − avgEntryPrice (в долях). >0 — оценивает события точнее рынка. */
+  edgeVsImplied: number;
+  /** Insider-подскор: доля выигрышных входов с avgPrice < INSIDER_ENTRY_THRESHOLD. */
+  insiderScore: number;
+  /** Фермер near-resolution: avgEntryPrice > FARMER_AVG_ENTRY_THRESHOLD. */
+  isFarmer: boolean;
+  /** PnL вытянут одним выбросом (MAD/Hampel) — рейтинг хрупкий. */
+  isOutlierDriven: boolean;
+}
+
+/** Сделка из ленты data-api /trades (для дискавери важен proxyWallet). */
+export interface DataApiTradeRaw {
+  proxyWallet: string;
+  conditionId: string;
+  side: TradeSide;
+  size: number;
+  price: number;
+  timestamp: number;
+  asset?: string;
+  outcome?: string;
+  outcomeIndex?: number;
+  title?: string;
+  slug?: string;
+}
+
 /** Допустимые окна для lb-api /profit (90d отсутствует в lb-api). */
 export type LbProfitWindow = "1d" | "7d" | "30d" | "all";
 
