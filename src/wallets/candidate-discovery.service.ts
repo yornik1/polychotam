@@ -204,8 +204,9 @@ export class CandidateDiscoveryService {
 
   /**
    * Ставит recent /activity backfill (PnL v2 recalc) для discovered-пула.
-   * jobId = адрес → коалесцирование, без дублей. Прогревает PnL-снапшоты,
-   * чтобы после промоушена данные уже были готовы.
+   * jobId = адрес → коалесцирование, без дублей. Джобы выполняются асинхронно,
+   * поэтому прогревают PnL-снапшоты к СЛЕДУЮЩЕМУ прогону скоринга (не к текущему:
+   * scoreAndPromoteDiscovered в этом же job берёт независимый /closed-positions).
    */
   async enqueuePnlBackfillForDiscovered(limit?: number): Promise<number> {
     const max = this.resolveInt(limit, "DISCOVERY_BACKFILL_LIMIT", 100);
@@ -225,6 +226,7 @@ export class CandidateDiscoveryService {
   }
 
   private resolveInt(value: number | undefined, envKey: string, fallback: number): number {
+    // Для лимитов 0 бессмысленен и трактуется как «не задано» → env/fallback.
     if (value !== undefined && Number.isInteger(value) && value > 0) {
       return value;
     }

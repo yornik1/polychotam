@@ -14,6 +14,8 @@ const DEFAULT_POLYMARKET_DATA_API_URL = "https://data-api.polymarket.com";
 const DEFAULT_POLYMARKET_LB_API_URL = "https://lb-api.polymarket.com";
 const DEFAULT_PAGE_LIMIT = 500;
 const DEFAULT_HOLDERS_LIMIT = 100;
+/** Потолок страниц closed-positions (40*500 = 20k) — защита от бесконечной пагинации. */
+const CLOSED_POSITIONS_MAX_PAGES = 40;
 const DEFAULT_HTTP_TIMEOUT_MS = 10000;
 
 /** Ошибка HTTP non-2xx от data-api или lb-api. */
@@ -210,7 +212,9 @@ export class DataApiClient {
     const result: ClosedPositionRaw[] = [];
     let offset = 0;
 
-    while (true) {
+    // Жёсткий потолок страниц: защита от бесконечной пагинации, если API
+    // аномально отдаёт ровно `limit` записей. 40*500 = 20k позиций — с запасом.
+    for (let page = 0; page < CLOSED_POSITIONS_MAX_PAGES; page += 1) {
       const params = new URLSearchParams({
         user: address,
         limit: String(limit),
