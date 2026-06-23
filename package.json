@@ -20,7 +20,8 @@
     "migration:revert": "nest build && npm run typeorm:js -- migration:revert -d dist/data-source.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "trades:repair-unknown": "nest build && node dist/repair-unknown-trades.main.js"
   },
   "dependencies": {
     "@bull-board/api": "^6.21.0",

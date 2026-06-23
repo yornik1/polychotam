@@ -9,12 +9,13 @@ describe("LiveTradeEnricherService", () => {
     vi.restoreAllMocks();
   });
 
-  function createService() {
+  function createService(configOverrides: Record<string, string> = {}) {
     const config = {
       get: vi.fn((key: string) =>
-        key === "POLYMARKET_DATA_API_URL"
+        configOverrides[key] ??
+        (key === "POLYMARKET_DATA_API_URL"
           ? "https://data-api.polymarket.com"
-          : undefined,
+          : undefined),
       ),
     } as Pick<ConfigService, "get"> as ConfigService;
 
@@ -179,6 +180,147 @@ describe("LiveTradeEnricherService", () => {
     const result = await createService().findMakerAddress(createJob());
 
     expect(result).toBe("0xprice-approx");
+  });
+
+  it("для whale-сделки пробует CASH fallback, если default market window не нашёл match", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          {
+            conditionId: "0xmarket",
+            asset: "asset-1",
+            side: "BUY",
+            size: 10,
+            price: 0.456,
+            timestamp: 1700000000,
+            proxyWallet: "0xother",
+          },
+        ]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          {
+            conditionId: "0xmarket",
+            asset: "asset-1",
+            side: "BUY",
+            size: 2500,
+            price: 0.5,
+            timestamp: 1700000000,
+            proxyWallet: "0xwhale",
+          },
+        ]),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createService().findMakerAddress({
+      ...createJob(),
+      amount: "2500",
+      price: "0.5",
+    });
+
+    expect(result).toBe("0xwhale");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://data-api.polymarket.com/trades?market=0xmarket&asset_id=asset-1&limit=200",
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://data-api.polymarket.com/trades?market=0xmarket&filterType=CASH&filterAmount=1000&limit=200",
+    );
+  });
+
+  it("для whale-сделки проверяет несколько CASH страниц с offset", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          {
+            conditionId: "0xmarket",
+            asset: "asset-1",
+            side: "BUY",
+            size: 2500,
+            price: 0.5,
+            timestamp: 1700000000,
+            proxyWallet: "0xwhale-page-2",
+          },
+        ]),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createService().findMakerAddress({
+      ...createJob(),
+      amount: "2500",
+      price: "0.5",
+    });
+
+    expect(result).toBe("0xwhale-page-2");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://data-api.polymarket.com/trades?market=0xmarket&filterType=CASH&filterAmount=1000&limit=200",
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://data-api.polymarket.com/trades?market=0xmarket&filterType=CASH&filterAmount=1000&limit=200&offset=200",
+    );
+  });
+
+  it("уважает config overrides для CASH threshold и max pages", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([]),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createService({
+      POLYMARKET_TRADE_ENRICHMENT_CASH_FILTER_AMOUNT: "2000",
+      POLYMARKET_TRADE_ENRICHMENT_CASH_FILTER_MAX_PAGES: "1",
+    }).findMakerAddress({
+      ...createJob(),
+      amount: "3000",
+      price: "1",
+    });
+
+    expect(result).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://data-api.polymarket.com/trades?market=0xmarket&filterType=CASH&filterAmount=2000&limit=200",
+    );
+  });
+
+  it("не вызывает CASH fallback для небольшой сделки", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue([]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createService().findMakerAddress({
+      ...createJob(),
+      amount: "10",
+      price: "0.5",
+    });
+
+    expect(result).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("бросает ошибку при невалидном payload upstream", async () => {

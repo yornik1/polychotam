@@ -6,6 +6,8 @@ const DEFAULT_POLYMARKET_DATA_API_URL = "https://data-api.polymarket.com";
 const ENRICHMENT_FETCH_LIMIT = 200;
 const TIMESTAMP_TOLERANCE_SEC = 10;
 const PRICE_TOLERANCE = 0.001;
+const DEFAULT_WHALE_CASH_FILTER_AMOUNT = 1000;
+const DEFAULT_WHALE_CASH_FILTER_MAX_PAGES = 5;
 
 interface HistoricalTradeCandidate {
   readonly market?: unknown;
@@ -78,7 +80,37 @@ export class LiveTradeEnricherService {
   constructor(private readonly configService: ConfigService) {}
 
   async findMakerAddress(job: TradeEnrichmentJob): Promise<string | null> {
-    const response = await fetch(this.buildTradesUrl(job));
+    const defaultResult = await this.findMakerAddressAtUrl(
+      job,
+      this.buildTradesUrl(job),
+    );
+    if (defaultResult !== null) {
+      return defaultResult;
+    }
+
+    if (!this.shouldUseWhaleCashFallback(job)) {
+      return null;
+    }
+
+    const maxPages = this.resolveWhaleCashFilterMaxPages();
+    for (let page = 0; page < maxPages; page += 1) {
+      const result = await this.findMakerAddressAtUrl(
+        job,
+        this.buildWhaleTradesUrl(job, page),
+      );
+      if (result !== null) {
+        return result;
+      }
+    }
+
+    return null;
+  }
+
+  private async findMakerAddressAtUrl(
+    job: TradeEnrichmentJob,
+    url: string,
+  ): Promise<string | null> {
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error(
         `Trade enrichment request failed: ${response.status} ${response.statusText}`,
@@ -102,11 +134,7 @@ export class LiveTradeEnricherService {
   }
 
   private buildTradesUrl(job: TradeEnrichmentJob): string {
-    const rawBaseUrl = this.configService.get<string>("POLYMARKET_DATA_API_URL");
-    const baseUrl =
-      typeof rawBaseUrl === "string" && rawBaseUrl.trim().length > 0
-        ? rawBaseUrl.trim()
-        : DEFAULT_POLYMARKET_DATA_API_URL;
+    const baseUrl = this.resolveDataApiUrl();
     const params = new URLSearchParams({
       market: job.market,
       asset_id: job.assetId,
@@ -114,6 +142,58 @@ export class LiveTradeEnricherService {
     });
 
     return `${baseUrl}/trades?${params.toString()}`;
+  }
+
+  private buildWhaleTradesUrl(job: TradeEnrichmentJob, page: number): string {
+    const baseUrl = this.resolveDataApiUrl();
+    const params = new URLSearchParams({
+      market: job.market,
+      filterType: "CASH",
+      filterAmount: String(this.resolveWhaleCashFilterAmount()),
+      limit: String(ENRICHMENT_FETCH_LIMIT),
+    });
+    if (page > 0) {
+      params.set("offset", String(page * ENRICHMENT_FETCH_LIMIT));
+    }
+
+    return `${baseUrl}/trades?${params.toString()}`;
+  }
+
+  private resolveDataApiUrl(): string {
+    const rawBaseUrl = this.configService.get<string>("POLYMARKET_DATA_API_URL");
+    return typeof rawBaseUrl === "string" && rawBaseUrl.trim().length > 0
+      ? rawBaseUrl.trim().replace(/\/$/, "")
+      : DEFAULT_POLYMARKET_DATA_API_URL;
+  }
+
+  private resolveWhaleCashFilterAmount(): number {
+    const raw = this.configService.get<string>(
+      "POLYMARKET_TRADE_ENRICHMENT_CASH_FILTER_AMOUNT",
+    );
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : DEFAULT_WHALE_CASH_FILTER_AMOUNT;
+  }
+
+  private resolveWhaleCashFilterMaxPages(): number {
+    const raw = this.configService.get<string>(
+      "POLYMARKET_TRADE_ENRICHMENT_CASH_FILTER_MAX_PAGES",
+    );
+    const parsed = Number(raw);
+    return Number.isSafeInteger(parsed) && parsed > 0
+      ? parsed
+      : DEFAULT_WHALE_CASH_FILTER_MAX_PAGES;
+  }
+
+  private shouldUseWhaleCashFallback(job: TradeEnrichmentJob): boolean {
+    const amount = Number(job.amount);
+    const price = Number(job.price);
+    if (!Number.isFinite(amount) || !Number.isFinite(price)) {
+      return false;
+    }
+
+    return amount * price >= this.resolveWhaleCashFilterAmount();
   }
 
   private extractTrades(payload: unknown): HistoricalTradeCandidate[] {
