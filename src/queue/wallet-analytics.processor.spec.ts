@@ -5,8 +5,10 @@ import { WalletsService } from "../wallets/wallets.service.js";
 import { WalletPnlV2Service } from "../wallets/wallet-pnl-v2.service.js";
 import { LbCrossCheckService } from "../wallets/lb-cross-check.service.js";
 import { WalletScoreService } from "../wallets/wallet-score.service.js";
+import { CandidateDiscoveryService } from "../wallets/candidate-discovery.service.js";
 import { BullJobNdjsonLogService } from "./bull-job-ndjson-log.service.js";
 import {
+  WALLET_ANALYTICS_JOB_CANDIDATE_DISCOVERY,
   WALLET_ANALYTICS_JOB_PNL_RECALC,
   WALLET_ANALYTICS_JOB_RECALCULATE,
 } from "./trades-queue.config.js";
@@ -41,6 +43,18 @@ function stubLbCrossCheck(validateWallet = vi.fn().mockResolvedValue(undefined))
   return { validateWallet } as unknown as LbCrossCheckService;
 }
 
+function stubDiscovery(
+  discoverFromTopMarkets = vi.fn().mockResolvedValue(undefined),
+  scoreAndPromoteDiscovered = vi.fn().mockResolvedValue(undefined),
+  enqueuePnlBackfillForDiscovered = vi.fn().mockResolvedValue(0),
+): CandidateDiscoveryService {
+  return {
+    discoverFromTopMarkets,
+    scoreAndPromoteDiscovered,
+    enqueuePnlBackfillForDiscovered,
+  } as unknown as CandidateDiscoveryService;
+}
+
 describe("WalletAnalyticsProcessor", () => {
   it("вызывает walletsService.recalculate для job wallet-recalculate", async () => {
     const recalculate = vi.fn().mockResolvedValue(undefined);
@@ -49,6 +63,7 @@ describe("WalletAnalyticsProcessor", () => {
       stubPnlV2Service(),
       stubLbCrossCheck(),
       stubScoreService(),
+      stubDiscovery(),
       stubNdjson(),
     );
 
@@ -67,6 +82,7 @@ describe("WalletAnalyticsProcessor", () => {
       stubPnlV2Service(recalc),
       stubLbCrossCheck(),
       stubScoreService(),
+      stubDiscovery(),
       stubNdjson(),
     );
 
@@ -84,6 +100,7 @@ describe("WalletAnalyticsProcessor", () => {
       stubPnlV2Service(recalc),
       stubLbCrossCheck(),
       stubScoreService(),
+      stubDiscovery(),
       stubNdjson(),
     );
 
@@ -110,6 +127,7 @@ describe("WalletAnalyticsProcessor", () => {
       stubPnlV2Service(recalc),
       stubLbCrossCheck(validateWallet),
       stubScoreService(),
+      stubDiscovery(),
       stubNdjson(),
     );
 
@@ -130,6 +148,7 @@ describe("WalletAnalyticsProcessor", () => {
       stubPnlV2Service(recalc),
       stubLbCrossCheck(),
       stubScoreService(),
+      stubDiscovery(),
       stubNdjson(),
     );
 
@@ -148,6 +167,7 @@ describe("WalletAnalyticsProcessor", () => {
       stubPnlV2Service(recalc),
       stubLbCrossCheck(),
       stubScoreService(),
+      stubDiscovery(),
       stubNdjson(),
     );
 
@@ -166,6 +186,7 @@ describe("WalletAnalyticsProcessor", () => {
       stubPnlV2Service(),
       stubLbCrossCheck(),
       stubScoreService(recalcScores),
+      stubDiscovery(),
       stubNdjson(),
     );
 
@@ -174,5 +195,23 @@ describe("WalletAnalyticsProcessor", () => {
     );
 
     expect(recalcScores).toHaveBeenCalledOnce();
+  });
+
+  it("вызывает discover + promote для job candidate-discovery", async () => {
+    const discoverFromTopMarkets = vi.fn().mockResolvedValue(undefined);
+    const scoreAndPromoteDiscovered = vi.fn().mockResolvedValue(undefined);
+    const processor = new WalletAnalyticsProcessor(
+      { recalculate: vi.fn() } as unknown as WalletsService,
+      stubPnlV2Service(),
+      stubLbCrossCheck(),
+      stubScoreService(),
+      stubDiscovery(discoverFromTopMarkets, scoreAndPromoteDiscovered),
+      stubNdjson(),
+    );
+
+    await processor.process(jobStub(WALLET_ANALYTICS_JOB_CANDIDATE_DISCOVERY, {}) as Job<never>);
+
+    expect(discoverFromTopMarkets).toHaveBeenCalledOnce();
+    expect(scoreAndPromoteDiscovered).toHaveBeenCalledOnce();
   });
 });

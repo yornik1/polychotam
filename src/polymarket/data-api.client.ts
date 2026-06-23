@@ -1,10 +1,21 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { LbProfitResult, LbProfitWindow, WalletActivityRaw, WalletPositionRaw } from "../types/contracts.js";
+import type {
+  ClosedPositionRaw,
+  DataApiTradeRaw,
+  LbProfitResult,
+  LbProfitWindow,
+  MarketHoldersRaw,
+  WalletActivityRaw,
+  WalletPositionRaw,
+} from "../types/contracts.js";
 
 const DEFAULT_POLYMARKET_DATA_API_URL = "https://data-api.polymarket.com";
 const DEFAULT_POLYMARKET_LB_API_URL = "https://lb-api.polymarket.com";
 const DEFAULT_PAGE_LIMIT = 500;
+const DEFAULT_HOLDERS_LIMIT = 100;
+/** Потолок страниц closed-positions (40*500 = 20k) — защита от бесконечной пагинации. */
+const CLOSED_POSITIONS_MAX_PAGES = 40;
 const DEFAULT_HTTP_TIMEOUT_MS = 10000;
 
 /** Ошибка HTTP non-2xx от data-api или lb-api. */
@@ -167,6 +178,91 @@ export class DataApiClient {
     }
 
     return result;
+  }
+
+  /**
+   * Топ-холдеры рынка из data-api /holders (по conditionId).
+   * Возвращает группы холдеров по каждому токену (Yes/No) рынка.
+   * Используется краулером кандидатов: адреса крупных холдеров — сид для скоринга.
+   */
+  async fetchHolders(conditionId: string, limit = DEFAULT_HOLDERS_LIMIT): Promise<MarketHoldersRaw[]> {
+    const base = this.resolveDataApiUrl();
+    const params = new URLSearchParams({
+      market: conditionId,
+      limit: String(limit),
+    });
+
+    const url = `${base}/holders?${params}`;
+    const payload = await this.fetchJson(url);
+
+    if (!Array.isArray(payload)) {
+      throw new Error(`data-api /holders unexpected payload shape at ${url}`);
+    }
+    return payload as MarketHoldersRaw[];
+  }
+
+  /**
+   * Закрытые (resolved) позиции кошелька из data-api /closed-positions.
+   * Источник winRate/edge/avgEntry для скоринга внешних (discovered) кошельков,
+   * у которых нет локальных Trade.
+   */
+  async fetchClosedPositions(address: string): Promise<ClosedPositionRaw[]> {
+    const base = this.resolveDataApiUrl();
+    const limit = DEFAULT_PAGE_LIMIT;
+    const result: ClosedPositionRaw[] = [];
+    let offset = 0;
+
+    // Жёсткий потолок страниц: защита от бесконечной пагинации, если API
+    // аномально отдаёт ровно `limit` записей. 40*500 = 20k позиций — с запасом.
+    for (let page = 0; page < CLOSED_POSITIONS_MAX_PAGES; page += 1) {
+      const params = new URLSearchParams({
+        user: address,
+        limit: String(limit),
+        offset: String(offset),
+      });
+
+      const url = `${base}/closed-positions?${params}`;
+      const payload = await this.fetchJson(url);
+
+      if (!Array.isArray(payload)) {
+        throw new Error(`data-api /closed-positions unexpected payload shape at ${url}`);
+      }
+
+      const rows = payload as ClosedPositionRaw[];
+      result.push(...rows);
+
+      if (rows.length < limit) {
+        break;
+      }
+      offset += limit;
+    }
+
+    return result;
+  }
+
+  /**
+   * Лента сделок из data-api /trades. Для дискавери: свежие proxyWallet по рынку
+   * или глобально. Одна страница (firehose), без авто-пагинации.
+   */
+  async fetchRecentTrades(
+    opts: { market?: string; limit?: number; offset?: number } = {},
+  ): Promise<DataApiTradeRaw[]> {
+    const base = this.resolveDataApiUrl();
+    const params = new URLSearchParams({
+      limit: String(opts.limit ?? DEFAULT_HOLDERS_LIMIT),
+      offset: String(opts.offset ?? 0),
+    });
+    if (opts.market !== undefined && opts.market.length > 0) {
+      params.set("market", opts.market);
+    }
+
+    const url = `${base}/trades?${params}`;
+    const payload = await this.fetchJson(url);
+
+    if (!Array.isArray(payload)) {
+      throw new Error(`data-api /trades unexpected payload shape at ${url}`);
+    }
+    return payload as DataApiTradeRaw[];
   }
 
   /**

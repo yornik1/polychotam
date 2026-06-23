@@ -1,12 +1,19 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Job } from "bullmq";
-import type { SmartScoreRecalcJob, WalletPnlRecalcJob, WalletRecalculateJob } from "../types/contracts.js";
+import type {
+  CandidateDiscoveryJob,
+  SmartScoreRecalcJob,
+  WalletPnlRecalcJob,
+  WalletRecalculateJob,
+} from "../types/contracts.js";
 import { WalletsService } from "../wallets/wallets.service.js";
 import { WalletPnlV2Service } from "../wallets/wallet-pnl-v2.service.js";
 import { LbCrossCheckService } from "../wallets/lb-cross-check.service.js";
 import { WalletScoreService } from "../wallets/wallet-score.service.js";
+import { CandidateDiscoveryService } from "../wallets/candidate-discovery.service.js";
 import { WALLET_ANALYTICS_JOB_SMART_SCORE_RECALC } from "../wallets/wallet-score-cron.service.js";
 import {
+  WALLET_ANALYTICS_JOB_CANDIDATE_DISCOVERY,
   WALLET_ANALYTICS_JOB_PNL_RECALC,
   WALLET_ANALYTICS_JOB_RECALCULATE,
   WALLET_ANALYTICS_QUEUE_NAME,
@@ -21,6 +28,7 @@ export class WalletAnalyticsProcessor extends WorkerHost {
     private readonly walletPnlV2Service: WalletPnlV2Service,
     private readonly lbCrossCheckService: LbCrossCheckService,
     private readonly walletScoreService: WalletScoreService,
+    private readonly candidateDiscoveryService: CandidateDiscoveryService,
     private readonly bullNdjsonLog: BullJobNdjsonLogService,
   ) {
     super();
@@ -40,7 +48,9 @@ export class WalletAnalyticsProcessor extends WorkerHost {
     );
   }
 
-  async process(job: Job<WalletRecalculateJob | WalletPnlRecalcJob | SmartScoreRecalcJob>): Promise<void> {
+  async process(
+    job: Job<WalletRecalculateJob | WalletPnlRecalcJob | SmartScoreRecalcJob | CandidateDiscoveryJob>,
+  ): Promise<void> {
     // Существующий guard: обработка wallet-recalculate
     if (job.name === WALLET_ANALYTICS_JOB_RECALCULATE) {
       await this.walletsService.recalculate((job.data as WalletRecalculateJob).address);
@@ -63,6 +73,15 @@ export class WalletAnalyticsProcessor extends WorkerHost {
     if (job.name === WALLET_ANALYTICS_JOB_SMART_SCORE_RECALC) {
       await this.walletScoreService.recalcScores();
       await this.walletScoreService.rollingDeactivationCheck();
+      return;
+    }
+
+    // Фоновый краулинг кандидатов + промоушен discovered через Data API
+    if (job.name === WALLET_ANALYTICS_JOB_CANDIDATE_DISCOVERY) {
+      const { promoteLimit } = job.data as CandidateDiscoveryJob;
+      await this.candidateDiscoveryService.discoverFromTopMarkets();
+      await this.candidateDiscoveryService.enqueuePnlBackfillForDiscovered();
+      await this.candidateDiscoveryService.scoreAndPromoteDiscovered({ limit: promoteLimit });
       return;
     }
   }
