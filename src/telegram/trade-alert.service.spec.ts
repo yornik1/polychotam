@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { ConfigService } from "@nestjs/config";
 import { MarketsService } from "../markets/markets.service.js";
 import type { SmartWalletStats } from "../wallets/smart-wallets.service.js";
-import { AlertSettingsService } from "../settings/alert-settings.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
+import { FollowedWalletsService } from "../wallets/followed-wallets.service.js";
 import { TelegramService } from "./telegram.service.js";
 import { TradeAlertService } from "./trade-alert.service.js";
 
@@ -22,17 +22,16 @@ describe("TradeAlertService", () => {
   function createService(overrides?: {
     threshold?: string;
     dedupTtlMs?: string;
-    isSmartWhale?: boolean;
+    isFollowed?: boolean;
     sendAlert?: boolean;
     marketRecord?: { question?: string; market_slug?: string } | null;
     stats?: SmartWalletStats | null;
-    alertsEnabled?: boolean;
     getStatsThrows?: boolean;
   }) {
     const sendAlert = vi.fn().mockResolvedValue(overrides?.sendAlert ?? true);
-    const isSmartWhale = vi
+    const isFollowed = vi
       .fn<(address: string) => Promise<boolean>>()
-      .mockResolvedValue(overrides?.isSmartWhale ?? true);
+      .mockResolvedValue(overrides?.isFollowed ?? true);
     const getStatsByAddress = vi
       .fn<(address: string) => Promise<SmartWalletStats | null>>()
       .mockImplementation(async (address: string) => {
@@ -47,9 +46,6 @@ describe("TradeAlertService", () => {
         }
         return { ...defaultStats, address };
       });
-    const isAlertsEnabled = vi
-      .fn<() => Promise<boolean>>()
-      .mockResolvedValue(overrides?.alertsEnabled ?? true);
     const findByConditionId = vi
       .fn<(conditionId: string) => Promise<{ question?: string; market_slug?: string } | null>>()
       .mockResolvedValue(overrides?.marketRecord ?? null);
@@ -67,18 +63,18 @@ describe("TradeAlertService", () => {
     const service = new TradeAlertService(
       { get } as unknown as ConfigService,
       { findByConditionId } as unknown as MarketsService,
-      { isSmartWhale, getStatsByAddress } as unknown as SmartWalletsService,
-      { isAlertsEnabled } as unknown as AlertSettingsService,
+      { getStatsByAddress } as unknown as SmartWalletsService,
+      { isFollowed } as unknown as FollowedWalletsService,
       { sendAlert } as unknown as TelegramService,
     );
 
-    return { service, isSmartWhale, getStatsByAddress, isAlertsEnabled, sendAlert, findByConditionId };
+    return { service, isFollowed, getStatsByAddress, sendAlert, findByConditionId };
   }
 
-  it("отправляет alert для smart whale при сумме выше порога", async () => {
-    const { service, isSmartWhale, sendAlert } = createService({
+  it("отправляет alert для followed-кошелька при сумме выше порога", async () => {
+    const { service, isFollowed, sendAlert } = createService({
       threshold: "1000",
-      isSmartWhale: true,
+      isFollowed: true,
     });
 
     await expect(
@@ -90,7 +86,7 @@ describe("TradeAlertService", () => {
       }),
     ).resolves.toBe(true);
 
-    expect(isSmartWhale).toHaveBeenCalledWith("0xmaker");
+    expect(isFollowed).toHaveBeenCalledWith("0xmaker");
     expect(sendAlert).toHaveBeenCalledWith(expect.stringContaining("0xmaker"));
     expect(sendAlert).toHaveBeenCalledWith(expect.stringContaining("1,500"));
     expect(sendAlert).toHaveBeenCalledWith(expect.stringMatching(/HR/i));
@@ -98,11 +94,10 @@ describe("TradeAlertService", () => {
     expect(sendAlert).toHaveBeenCalledWith(expect.stringContaining("42"));
   });
 
-  it("не отправляет alert, если глобально выключено /alerts off", async () => {
-    const { service, isAlertsEnabled, isSmartWhale, sendAlert, findByConditionId } = createService({
+  it("не отправляет alert, если кошелёк НЕ followed", async () => {
+    const { service, sendAlert, findByConditionId } = createService({
       threshold: "1000",
-      isSmartWhale: true,
-      alertsEnabled: false,
+      isFollowed: false,
     });
 
     await expect(
@@ -114,16 +109,14 @@ describe("TradeAlertService", () => {
       }),
     ).resolves.toBe(false);
 
-    expect(isAlertsEnabled).toHaveBeenCalled();
-    expect(isSmartWhale).not.toHaveBeenCalled();
     expect(findByConditionId).not.toHaveBeenCalled();
     expect(sendAlert).not.toHaveBeenCalled();
   });
 
-  it("не отправляет alert, если сумма ниже порога", async () => {
-    const { service, isSmartWhale, sendAlert } = createService({
+  it("не отправляет alert, если сумма ниже порога (followed не проверяется)", async () => {
+    const { service, isFollowed, sendAlert } = createService({
       threshold: "1000",
-      isSmartWhale: true,
+      isFollowed: true,
     });
 
     await expect(
@@ -135,14 +128,14 @@ describe("TradeAlertService", () => {
       }),
     ).resolves.toBe(false);
 
-    expect(isSmartWhale).not.toHaveBeenCalled();
+    expect(isFollowed).not.toHaveBeenCalled();
     expect(sendAlert).not.toHaveBeenCalled();
   });
 
   it("отправляет alert при сумме ровно на пороге", async () => {
     const { service, sendAlert } = createService({
       threshold: "1000",
-      isSmartWhale: true,
+      isFollowed: true,
     });
 
     await expect(
@@ -157,29 +150,10 @@ describe("TradeAlertService", () => {
     expect(sendAlert).toHaveBeenCalledTimes(1);
   });
 
-  it("не отправляет alert, если адрес не в whitelist smart whales", async () => {
-    const { service, sendAlert, findByConditionId } = createService({
-      threshold: "1000",
-      isSmartWhale: false,
-    });
-
-    await expect(
-      service.maybeSendTradeAlert({
-        address: "0xmaker",
-        market: "0xmarket",
-        side: "BUY",
-        amount: "1500",
-      }),
-    ).resolves.toBe(false);
-
-    expect(findByConditionId).not.toHaveBeenCalled();
-    expect(sendAlert).not.toHaveBeenCalled();
-  });
-
   it("возвращает false, если TelegramService не смог отправить alert", async () => {
     const { service, sendAlert } = createService({
       threshold: "1000",
-      isSmartWhale: true,
+      isFollowed: true,
       sendAlert: false,
     });
 
@@ -198,7 +172,7 @@ describe("TradeAlertService", () => {
   it("подставляет question маркета вместо сырого condition_id", async () => {
     const { service, sendAlert, findByConditionId } = createService({
       threshold: "1000",
-      isSmartWhale: true,
+      isFollowed: true,
       marketRecord: {
         question: "Will BTC be above $100k?",
         market_slug: "btc-above-100k",
@@ -222,7 +196,7 @@ describe("TradeAlertService", () => {
   it("при ошибке getStatsByAddress отправляет алерт с HR n/a", async () => {
     const { service, sendAlert } = createService({
       threshold: "1000",
-      isSmartWhale: true,
+      isFollowed: true,
       getStatsThrows: true,
     });
 
@@ -242,7 +216,7 @@ describe("TradeAlertService", () => {
   it("не дублирует alert при повторном вызове с тем же tradeTimestamp в окне dedup", async () => {
     const { service, sendAlert } = createService({
       threshold: "1000",
-      isSmartWhale: true,
+      isFollowed: true,
       dedupTtlMs: "60000",
     });
 
