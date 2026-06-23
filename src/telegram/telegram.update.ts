@@ -45,6 +45,8 @@ interface ReplyContext {
 
 /** Контекст callback-запроса (нажатие inline-кнопки). */
 interface CallbackContext {
+  /** Отправитель callback — для admin-guard (callback идёт по from.id, не chat.id). */
+  from?: { id: number };
   /** Результат regex из @Action — match[1] содержит адрес. */
   match?: RegExpExecArray | null;
   answerCbQuery(text?: string): Promise<unknown> | unknown;
@@ -260,9 +262,35 @@ export class TelegramUpdate {
     await ctx.reply(lines.join("\n"), { parse_mode: "HTML", disable_web_page_preview: true });
   }
 
+  /**
+   * Admin-guard для callback'ов: бот личный, мутации (follow/unfollow) должны
+   * идти только из admin-чата. Callback приходит по from.id, а не chat.id.
+   */
+  private async ensureCallbackAdmin(ctx: CallbackContext): Promise<boolean> {
+    if (isAdminChat(ctx.from?.id, this.adminChatId)) {
+      return true;
+    }
+    await ctx.answerCbQuery();
+    return false;
+  }
+
+  /** Callback: пагинация списка /whales (перерисовка на месте). */
+  @Action(/^wp:(\d+)$/u)
+  async handleWhalesPage(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
+    const page = Number(ctx.match?.[1] ?? "0");
+    const whitelist = await this.smartWalletsService.getActiveWhitelist();
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      "🧠 <b>Smart-кошельки</b> — тапни кошелёк для карточки и подписки:",
+      inlineKeyboardExtra(buildWhalesKeyboard(whitelist, page)),
+    );
+  }
+
   /** Callback: показать карточку кошелька (кнопка из /whales). */
   @Action(/^w:(.+)$/u)
   async handleWalletCard(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
     const address = ctx.match?.[1]?.trim() ?? "";
     if (address.length === 0) {
       await ctx.answerCbQuery("Не удалось определить кошелёк");
@@ -275,6 +303,7 @@ export class TelegramUpdate {
   /** Callback: подписаться на кошелёк. */
   @Action(/^f:(.+)$/u)
   async handleFollow(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
     const address = ctx.match?.[1]?.trim() ?? "";
     if (address.length === 0) {
       await ctx.answerCbQuery("Не удалось определить кошелёк");
@@ -288,6 +317,7 @@ export class TelegramUpdate {
   /** Callback: отписаться от кошелька. */
   @Action(/^u:(.+)$/u)
   async handleUnfollow(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
     const address = ctx.match?.[1]?.trim() ?? "";
     if (address.length === 0) {
       await ctx.answerCbQuery("Не удалось определить кошелёк");
@@ -301,6 +331,7 @@ export class TelegramUpdate {
   /** Callback: PnL кошелька (отдельным сообщением, карточка остаётся). */
   @Action(/^p:(.+)$/u)
   async handleCardPnl(@Ctx() ctx: CallbackContext): Promise<void> {
+    if (!(await this.ensureCallbackAdmin(ctx))) return;
     const address = ctx.match?.[1]?.trim() ?? "";
     if (address.length === 0) {
       await ctx.answerCbQuery("Не удалось определить кошелёк");

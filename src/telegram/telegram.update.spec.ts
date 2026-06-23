@@ -835,6 +835,7 @@ describe("TelegramUpdate", () => {
       const editMessageText = vi.fn();
 
       await update.handleWalletCard({
+        from: { id: Number(ADMIN_CHAT_ID) },
         match: cbMatch("w", "0xabc"),
         answerCbQuery,
         editMessageText,
@@ -864,6 +865,7 @@ describe("TelegramUpdate", () => {
       const editMessageText = vi.fn();
 
       await update.handleFollow({
+        from: { id: Number(ADMIN_CHAT_ID) },
         match: cbMatch("f", "0xabc"),
         answerCbQuery,
         editMessageText,
@@ -892,6 +894,7 @@ describe("TelegramUpdate", () => {
       const editMessageText = vi.fn();
 
       await update.handleUnfollow({
+        from: { id: Number(ADMIN_CHAT_ID) },
         match: cbMatch("u", "0xabc"),
         answerCbQuery,
         editMessageText,
@@ -908,6 +911,7 @@ describe("TelegramUpdate", () => {
       const reply = vi.fn();
 
       await update.handleCardPnl({
+        from: { id: Number(ADMIN_CHAT_ID) },
         match: cbMatch("p", "0xabc"),
         answerCbQuery,
         editMessageText: vi.fn(),
@@ -916,6 +920,44 @@ describe("TelegramUpdate", () => {
 
       expect(getOrComputePnl).toHaveBeenCalledWith("0xabc", "all");
       expect(reply).toHaveBeenCalled();
+    });
+
+    it("wp:<page> перерисовывает список на нужной странице", async () => {
+      const { update, getActiveWhitelist } = createUpdate();
+      getActiveWhitelist.mockResolvedValue([
+        { address: "0xaaa", active: true, hit_rate: "0.8", sum_pnl: "1", roi_pct: "1", whale_trade_count: 1, notes: "", source: "discovered" },
+      ]);
+      const answerCbQuery = vi.fn();
+      const editMessageText = vi.fn();
+
+      await update.handleWhalesPage({
+        from: { id: Number(ADMIN_CHAT_ID) },
+        match: cbMatch("wp", "0"),
+        answerCbQuery,
+        editMessageText,
+        reply: vi.fn(),
+      } as CallbackContext);
+
+      expect(getActiveWhitelist).toHaveBeenCalled();
+      expect(editMessageText).toHaveBeenCalled();
+    });
+
+    it("callback от не-admin (from.id чужой) отвергается без мутации", async () => {
+      const { update, follow } = createUpdate();
+      const answerCbQuery = vi.fn();
+      const editMessageText = vi.fn();
+
+      await update.handleFollow({
+        from: { id: 999999 },
+        match: cbMatch("f", "0xabc"),
+        answerCbQuery,
+        editMessageText,
+        reply: vi.fn(),
+      } as CallbackContext);
+
+      expect(follow).not.toHaveBeenCalled();
+      expect(editMessageText).not.toHaveBeenCalled();
+      expect(answerCbQuery).toHaveBeenCalled(); // спиннер закрыт
     });
   });
 });
