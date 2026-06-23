@@ -13,6 +13,8 @@ import { WalletPnlV2Service } from "./wallet-pnl-v2.service.js";
 import { WalletPnlCronService } from "./wallet-pnl-cron.service.js";
 import { WalletScoreService } from "./wallet-score.service.js";
 import { WalletScoreCronService } from "./wallet-score-cron.service.js";
+import { CandidateDiscoveryService } from "./candidate-discovery.service.js";
+import { CandidateDiscoveryCronService } from "./candidate-discovery-cron.service.js";
 import { LbCrossCheckService } from "./lb-cross-check.service.js";
 import { PolymarketModule } from "../polymarket/polymarket.module.js";
 import { TelegramModule } from "../telegram/telegram.module.js";
@@ -25,7 +27,7 @@ import { TelegramModule } from "../telegram/telegram.module.js";
     forwardRef(() => TelegramModule),
   ],
   controllers: [WalletsController],
-  providers: [WalletsService, SmartWalletsService, WalletPnlV2Service, WalletPnlCronService, WalletScoreService, WalletScoreCronService, LbCrossCheckService],
-  exports: [WalletsService, SmartWalletsService, WalletPnlV2Service, WalletScoreService, LbCrossCheckService],
+  providers: [WalletsService, SmartWalletsService, WalletPnlV2Service, WalletPnlCronService, WalletScoreService, WalletScoreCronService, CandidateDiscoveryService, CandidateDiscoveryCronService, LbCrossCheckService],
+  exports: [WalletsService, SmartWalletsService, WalletPnlV2Service, WalletScoreService, CandidateDiscoveryService, LbCrossCheckService],
 })
 export class WalletsModule {}

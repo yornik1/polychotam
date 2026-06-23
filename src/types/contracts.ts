@@ -342,3 +342,9 @@ export interface WalletPnlRecalcJob {
 export interface SmartScoreRecalcJob {
   address?: string;
 }
+
+/** Job фонового краулинга кандидатов + промоушена discovered. */
+export interface CandidateDiscoveryJob {
+  /** Лимит discovered-кошельков на промоушен за проход (опц.). */
+  promoteLimit?: number;
+}
