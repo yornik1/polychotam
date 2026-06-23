@@ -2,6 +2,8 @@ import { BullBoardModule } from "@bull-board/nestjs";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { BullModule } from "@nestjs/bullmq";
 import { forwardRef, Global, Module } from "@nestjs/common";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { Trade } from "../trades/trade.entity.js";
 import { PolymarketEnrichmentModule } from "../polymarket/polymarket-enrichment.module.js";
 import { PolymarketModule } from "../polymarket/polymarket.module.js";
 import { TelegramModule } from "../telegram/telegram.module.js";
@@ -15,6 +17,7 @@ import { QueueStatsService } from "./queue-stats.service.js";
 import { TradeEnrichmentProcessor } from "./trade-enrichment.processor.js";
 import { TradesProcessor } from "./trades.processor.js";
 import { UnknownTradeBackfillFeederService } from "./unknown-trade-backfill-feeder.service.js";
+import { UnknownTradeCleanupService } from "./unknown-trade-cleanup.service.js";
 import { WalletAnalyticsProcessor } from "./wallet-analytics.processor.js";
 import {
   TRADE_ENRICHMENT_QUEUE_NAME,
@@ -45,6 +48,7 @@ import {
       name: TRADE_ENRICHMENT_QUEUE_NAME,
       adapter: BullMQAdapter,
     }),
+    TypeOrmModule.forFeature([Trade]),
     TradesModule,
     WalletsModule,
     PolymarketEnrichmentModule,
@@ -61,6 +65,7 @@ import {
     WalletAnalyticsProcessor,
     TradeEnrichmentProcessor,
     UnknownTradeBackfillFeederService,
+    UnknownTradeCleanupService,
   ],
   exports: [BullModule, QueueService, QueueStatsService, BullJobNdjsonLogService],
 })
