@@ -39,3 +39,4 @@ lerna-debug.log*
 .codex/skills/.system/**
 !.codex/prompts/
 !.codex/prompts/**
+.omc/
