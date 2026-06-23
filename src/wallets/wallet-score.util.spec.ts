@@ -72,4 +72,47 @@ describe("computeWalletScore", () => {
     const zero = computeWalletScore({ pnl90d: 0, winRate: 0.6, profitFactor: 2, sampleSize: 30 });
     expect(neg as number).toBeLessThan(zero as number);
   });
+
+  // ─── edge / roi (Ф5), обратная совместимость ────────────────────────────────
+
+  it("без edge/roi — поведение идентично прежней формуле", () => {
+    // edge=0, roi=0 дают нейтраль 0.5, но путь с весами 0.7/0.2/0.1 ≠ базовому;
+    // поэтому именно ОТСУТСТВИЕ полей должно давать ровно базовую формулу.
+    const base = computeWalletScore({ pnl90d: 1000, winRate: 0.6, profitFactor: 2, sampleSize: 40 });
+    const baseAgain = computeWalletScore({
+      pnl90d: 1000,
+      winRate: 0.6,
+      profitFactor: 2,
+      sampleSize: 40,
+    });
+    expect(base).toBeCloseTo(baseAgain as number, 9);
+  });
+
+  it("более высокий edge → более высокий score (монотонность)", () => {
+    const lowEdge = computeWalletScore({
+      pnl90d: 1000, winRate: 0.6, profitFactor: 2, sampleSize: 40, edge: 0.0,
+    });
+    const highEdge = computeWalletScore({
+      pnl90d: 1000, winRate: 0.6, profitFactor: 2, sampleSize: 40, edge: 0.3,
+    });
+    expect(highEdge as number).toBeGreaterThan(lowEdge as number);
+  });
+
+  it("более высокий roi → более высокий score (монотонность)", () => {
+    const lowRoi = computeWalletScore({
+      pnl90d: 1000, winRate: 0.6, profitFactor: 2, sampleSize: 40, roi: 0.0,
+    });
+    const highRoi = computeWalletScore({
+      pnl90d: 1000, winRate: 0.6, profitFactor: 2, sampleSize: 40, roi: 0.5,
+    });
+    expect(highRoi as number).toBeGreaterThan(lowRoi as number);
+  });
+
+  it("score с edge/roi остаётся в 0..100", () => {
+    const s = computeWalletScore({
+      pnl90d: 100_000, winRate: 1.0, profitFactor: 10, sampleSize: 100, edge: 0.6, roi: 2,
+    });
+    expect(s as number).toBeGreaterThanOrEqual(0);
+    expect(s as number).toBeLessThanOrEqual(100);
+  });
 });

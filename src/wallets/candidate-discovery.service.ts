@@ -4,6 +4,7 @@ import { ConfigService } from "@nestjs/config";
 import { In, MoreThan, Repository } from "typeorm";
 import { Market } from "../markets/market.entity.js";
 import { DataApiClient } from "../polymarket/data-api.client.js";
+import { QueueService } from "../queue/queue.service.js";
 import { SmartWallet } from "./smart-wallet.entity.js";
 import { computeDiscoveredStats, shrinkWinRate } from "./discovered-stats.util.js";
 
@@ -54,6 +55,7 @@ export class CandidateDiscoveryService {
     @InjectRepository(SmartWallet)
     private readonly smartWalletRepository: Repository<SmartWallet>,
     private readonly dataApiClient: DataApiClient,
+    private readonly queueService: QueueService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -198,6 +200,24 @@ export class CandidateDiscoveryService {
     }
 
     return { evaluated, promoted, rejected, failed };
+  }
+
+  /**
+   * Ставит recent /activity backfill (PnL v2 recalc) для discovered-пула.
+   * jobId = адрес → коалесцирование, без дублей. Прогревает PnL-снапшоты,
+   * чтобы после промоушена данные уже были готовы.
+   */
+  async enqueuePnlBackfillForDiscovered(limit?: number): Promise<number> {
+    const max = this.resolveInt(limit, "DISCOVERY_BACKFILL_LIMIT", 100);
+    const discovered = await this.smartWalletRepository.find({
+      where: { source: DISCOVERED_SOURCE, active: false },
+      take: max,
+      select: { address: true },
+    });
+    for (const wallet of discovered) {
+      await this.queueService.enqueueWalletPnlRecalc(wallet.address);
+    }
+    return discovered.length;
   }
 
   private delay(ms: number): Promise<void> {

@@ -80,6 +80,7 @@ export class WalletAnalyticsProcessor extends WorkerHost {
     if (job.name === WALLET_ANALYTICS_JOB_CANDIDATE_DISCOVERY) {
       const { promoteLimit } = job.data as CandidateDiscoveryJob;
       await this.candidateDiscoveryService.discoverFromTopMarkets();
+      await this.candidateDiscoveryService.enqueuePnlBackfillForDiscovered();
       await this.candidateDiscoveryService.scoreAndPromoteDiscovered({ limit: promoteLimit });
       return;
     }

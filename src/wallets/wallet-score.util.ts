@@ -19,6 +19,13 @@ export interface ComputeWalletScoreInput {
   winRate: number;
   profitFactor: number | null;
   sampleSize: number;
+  /**
+   * Edge vs implied odds (winRate − avg implied entry), примерно [-1, 1].
+   * Опционально: если не задан (и roi не задан) — формула идентична прежней.
+   */
+  edge?: number;
+  /** ROI (доля). Опционально, см. edge. */
+  roi?: number;
 }
 
 /** Сигмоида: 1 / (1 + e^(-x)). */
@@ -51,7 +58,7 @@ function normalizePnl(pnl: number, scale: number): number {
  * Веса: pnl90d=0.45, winRate=0.35, profitFactor=0.20.
  */
 export function computeWalletScore(input: ComputeWalletScoreInput): number | null {
-  const { pnl90d, winRate, profitFactor, sampleSize } = input;
+  const { pnl90d, winRate, profitFactor, sampleSize, edge, roi } = input;
 
   // Гейт: минимальный размер выборки
   if (sampleSize < 30) {
@@ -67,6 +74,18 @@ export function computeWalletScore(input: ComputeWalletScoreInput): number | nul
   // Profit factor: pf/(pf+1), null → нейтральное 0.5
   const pfNorm = profitFactor !== null ? profitFactor / (profitFactor + 1) : 0.5;
 
-  const raw = 0.45 * normPnl + 0.35 * normWinRate + 0.20 * pfNorm;
-  return Math.round(raw * 100 * 1e6) / 1e6; // сохраняем точность до 6 знаков
+  // Базовая (историческая) часть: pnl 0.45, winRate 0.35, profitFactor 0.20.
+  const base = 0.45 * normPnl + 0.35 * normWinRate + 0.20 * pfNorm;
+
+  // Обратная совместимость: без edge и roi формула ровно прежняя.
+  if (edge === undefined && roi === undefined) {
+    return Math.round(base * 100 * 1e6) / 1e6;
+  }
+
+  // С edge/roi: база 0.70, edge 0.20, roi 0.10. Нормировки монотонны и ограничены (0..1).
+  // sigmoid(0)=0.5 → нейтраль при edge=0 / roi=0; масштабы 4 и 2 задают чувствительность.
+  const normEdge = edge !== undefined ? sigmoid(edge * 4) : 0.5;
+  const normRoi = roi !== undefined ? sigmoid(roi * 2) : 0.5;
+  const raw = 0.7 * base + 0.2 * normEdge + 0.1 * normRoi;
+  return Math.round(raw * 100 * 1e6) / 1e6;
 }

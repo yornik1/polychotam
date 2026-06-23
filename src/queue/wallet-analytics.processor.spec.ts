@@ -46,8 +46,13 @@ function stubLbCrossCheck(validateWallet = vi.fn().mockResolvedValue(undefined))
 function stubDiscovery(
   discoverFromTopMarkets = vi.fn().mockResolvedValue(undefined),
   scoreAndPromoteDiscovered = vi.fn().mockResolvedValue(undefined),
+  enqueuePnlBackfillForDiscovered = vi.fn().mockResolvedValue(0),
 ): CandidateDiscoveryService {
-  return { discoverFromTopMarkets, scoreAndPromoteDiscovered } as unknown as CandidateDiscoveryService;
+  return {
+    discoverFromTopMarkets,
+    scoreAndPromoteDiscovered,
+    enqueuePnlBackfillForDiscovered,
+  } as unknown as CandidateDiscoveryService;
 }
 
 describe("WalletAnalyticsProcessor", () => {

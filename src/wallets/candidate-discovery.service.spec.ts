@@ -5,6 +5,7 @@ import type { ClosedPositionRaw, MarketHoldersRaw } from "../types/contracts.js"
 import { Market } from "../markets/market.entity.js";
 import { SmartWallet } from "./smart-wallet.entity.js";
 import { DataApiClient } from "../polymarket/data-api.client.js";
+import { QueueService } from "../queue/queue.service.js";
 import { CandidateDiscoveryService, DISCOVERED_SOURCE } from "./candidate-discovery.service.js";
 
 function makeConfig(values: Record<string, string> = {}): ConfigService {
@@ -33,6 +34,7 @@ describe("CandidateDiscoveryService.discoverFromTopMarkets", () => {
     update: ReturnType<typeof vi.fn>;
   };
   let dataApi: { fetchHolders: ReturnType<typeof vi.fn>; fetchClosedPositions: ReturnType<typeof vi.fn> };
+  let queueService: { enqueueWalletPnlRecalc: ReturnType<typeof vi.fn> };
   let service: CandidateDiscoveryService;
 
   beforeEach(() => {
@@ -43,10 +45,12 @@ describe("CandidateDiscoveryService.discoverFromTopMarkets", () => {
       update: vi.fn().mockResolvedValue(undefined),
     };
     dataApi = { fetchHolders: vi.fn(), fetchClosedPositions: vi.fn() };
+    queueService = { enqueueWalletPnlRecalc: vi.fn().mockResolvedValue(undefined) };
     service = new CandidateDiscoveryService(
       marketRepo as unknown as Repository<Market>,
       smartWalletRepo as unknown as Repository<SmartWallet>,
       dataApi as unknown as DataApiClient,
+      queueService as unknown as QueueService,
       makeConfig(),
     );
   });
@@ -174,6 +178,17 @@ describe("CandidateDiscoveryService.discoverFromTopMarkets", () => {
 
     expect(result.promoted).toBe(0);
     expect(result.rejected).toBe(1);
+  });
+
+  it("enqueuePnlBackfillForDiscovered ставит recalc по каждому discovered", async () => {
+    smartWalletRepo.find.mockResolvedValue([{ address: "0x1" }, { address: "0x2" }]);
+
+    const count = await service.enqueuePnlBackfillForDiscovered();
+
+    expect(count).toBe(2);
+    expect(queueService.enqueueWalletPnlRecalc).toHaveBeenCalledTimes(2);
+    expect(queueService.enqueueWalletPnlRecalc).toHaveBeenCalledWith("0x1");
+    expect(queueService.enqueueWalletPnlRecalc).toHaveBeenCalledWith("0x2");
   });
 
   it("изолирует ошибку Data API на кошелёк", async () => {
