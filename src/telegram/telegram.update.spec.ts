@@ -13,6 +13,7 @@ import type { AlertSettingsService } from "../settings/alert-settings.service.js
 import type { WsUptimeService } from "../polymarket/ws-uptime.service.js";
 import type { WalletScoreService } from "../wallets/wallet-score.service.js";
 import type { WalletPnlV2Service } from "../wallets/wallet-pnl-v2.service.js";
+import type { CandidateDiscoveryService } from "../wallets/candidate-discovery.service.js";
 import type { TelegramService } from "./telegram.service.js";
 import type { WalletScore } from "../wallets/wallet-score.entity.js";
 import { TelegramUpdate } from "./telegram.update.js";
@@ -87,6 +88,12 @@ describe("TelegramUpdate", () => {
     };
     const getTopByScore = vi.fn<(limit: number) => Promise<WalletScore[]>>();
     const sendAdminAlert = vi.fn<(msg: string) => Promise<boolean>>().mockResolvedValue(true);
+    const discoverFromTopMarkets = vi
+      .fn()
+      .mockResolvedValue({ marketsScanned: 20, addressesFound: 5, inserted: 3, skippedExisting: 2 });
+    const scoreAndPromoteDiscovered = vi
+      .fn()
+      .mockResolvedValue({ evaluated: 3, promoted: 1, rejected: 2, failed: 0 });
 
     const update = new TelegramUpdate(
       { findBySlug, findByConditionId, getScoreCandidates } as unknown as MarketsService,
@@ -102,6 +109,7 @@ describe("TelegramUpdate", () => {
       { getTopByScore } as unknown as WalletScoreService,
       { sendAdminAlert } as unknown as TelegramService,
       { getOrComputePnl } as unknown as WalletPnlV2Service,
+      { discoverFromTopMarkets, scoreAndPromoteDiscovered } as unknown as CandidateDiscoveryService,
     );
 
     return {
@@ -119,6 +127,8 @@ describe("TelegramUpdate", () => {
       wsStatusService,
       getTopByScore,
       sendAdminAlert,
+      discoverFromTopMarkets,
+      scoreAndPromoteDiscovered,
     };
   }
 
@@ -152,6 +162,27 @@ describe("TelegramUpdate", () => {
       expect.stringContaining("/market"),
       { parse_mode: "HTML" },
     );
+  });
+
+  it("/discover из admin-чата запускает дискавери и шлёт сводку", async () => {
+    const { update, discoverFromTopMarkets, scoreAndPromoteDiscovered } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+
+    await update.handleDiscover({ chat: { id: Number(ADMIN_CHAT_ID) }, reply } as ReplyContext);
+
+    expect(discoverFromTopMarkets).toHaveBeenCalledOnce();
+    expect(scoreAndPromoteDiscovered).toHaveBeenCalledOnce();
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("промоутнуто: 1"));
+  });
+
+  it("/discover из не-admin чата игнорируется", async () => {
+    const { update, discoverFromTopMarkets } = createUpdate();
+    const reply = vi.fn<(message: string) => void>();
+
+    await update.handleDiscover({ chat: { id: 999999 }, reply } as ReplyContext);
+
+    expect(discoverFromTopMarkets).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
   });
 
   it("отвечает market summary для найденного slug", async () => {
@@ -653,6 +684,10 @@ describe("TelegramUpdate", () => {
         { getTopByScore: vi.fn() } as unknown as WalletScoreService,
         { sendAdminAlert: vi.fn().mockResolvedValue(true) } as unknown as TelegramService,
         { getOrComputePnl: vi.fn() } as unknown as WalletPnlV2Service,
+        {
+          discoverFromTopMarkets: vi.fn(),
+          scoreAndPromoteDiscovered: vi.fn(),
+        } as unknown as CandidateDiscoveryService,
       );
       const reply = vi.fn();
 
@@ -684,6 +719,10 @@ describe("TelegramUpdate", () => {
         { getTopByScore: vi.fn() } as unknown as WalletScoreService,
         { sendAdminAlert: vi.fn().mockResolvedValue(true) } as unknown as TelegramService,
         { getOrComputePnl: vi.fn() } as unknown as WalletPnlV2Service,
+        {
+          discoverFromTopMarkets: vi.fn(),
+          scoreAndPromoteDiscovered: vi.fn(),
+        } as unknown as CandidateDiscoveryService,
       );
       const reply = vi.fn();
 
@@ -719,6 +758,10 @@ describe("TelegramUpdate", () => {
         { getTopByScore: vi.fn() } as unknown as WalletScoreService,
         { sendAdminAlert: vi.fn().mockResolvedValue(true) } as unknown as TelegramService,
         { getOrComputePnl: vi.fn() } as unknown as WalletPnlV2Service,
+        {
+          discoverFromTopMarkets: vi.fn(),
+          scoreAndPromoteDiscovered: vi.fn(),
+        } as unknown as CandidateDiscoveryService,
       );
       const reply = vi.fn();
 

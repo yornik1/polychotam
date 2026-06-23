@@ -6,6 +6,7 @@ import { MarketsService } from "../markets/markets.service.js";
 import { SmartWalletsService } from "../wallets/smart-wallets.service.js";
 import { WalletScoreService } from "../wallets/wallet-score.service.js";
 import { WalletPnlV2Service } from "../wallets/wallet-pnl-v2.service.js";
+import { CandidateDiscoveryService } from "../wallets/candidate-discovery.service.js";
 import type { WalletPnlV2Window } from "../types/contracts.js";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -81,6 +82,7 @@ export class TelegramUpdate {
     private readonly walletScoreService: WalletScoreService,
     private readonly telegramService: TelegramService,
     private readonly walletPnlV2Service: WalletPnlV2Service,
+    private readonly candidateDiscoveryService: CandidateDiscoveryService,
   ) {
     // Приоритет: ADMIN_CHAT_ID → TELEGRAM_CHAT_ID → null (admin-функции отключены)
     const raw =
@@ -95,6 +97,34 @@ export class TelegramUpdate {
   @Start()
   async handleStart(@Ctx() ctx: ReplyContext): Promise<void> {
     await ctx.reply(formatStartMessage(), { parse_mode: "HTML" });
+  }
+
+  /**
+   * Admin-команда: запустить дискавери кандидатов немедленно (не ждать 6h-крон).
+   * Краулит холдеров топ-рынков → discovered, затем скорит и промоутит прошедших гейты.
+   */
+  @Command("discover")
+  async handleDiscover(@Ctx() ctx: ReplyContext): Promise<void> {
+    if (!isAdminChat(ctx.chat?.id, this.adminChatId)) return;
+
+    await ctx.reply("🔎 Запускаю дискавери кандидатов… (краулинг холдеров + скоринг)");
+    try {
+      const discovery = await this.candidateDiscoveryService.discoverFromTopMarkets();
+      const promote = await this.candidateDiscoveryService.scoreAndPromoteDiscovered();
+      await ctx.reply(
+        [
+          "✅ Дискавери завершён",
+          `Рынков просканировано: ${discovery.marketsScanned}`,
+          `Найдено адресов: ${discovery.addressesFound}`,
+          `Новых кандидатов: ${discovery.inserted} (уже было: ${discovery.skippedExisting})`,
+          `Оценено: ${promote.evaluated} · промоутнуто: ${promote.promoted} · отклонено: ${promote.rejected} · ошибок: ${promote.failed}`,
+          "",
+          "Промоутнутые видны в /whales.",
+        ].join("\n"),
+      );
+    } catch (error: unknown) {
+      await ctx.reply(`⚠️ Дискавери упал: ${this.toErrorMessage(error)}`);
+    }
   }
 
   @Command("market")
