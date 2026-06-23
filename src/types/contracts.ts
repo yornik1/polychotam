@@ -124,6 +124,11 @@ export interface TradeEnrichmentJob {
   amount: string;
   price: string;
   timestamp: number;
+  /**
+   * true — джоб поставлен фоновым backfill-фидером (ремонт старых unknown).
+   * Processor резолвит maker_address, но НЕ шлёт ретро Telegram-алерт.
+   */
+  backfill?: boolean;
 }
 
 /** Job пагинации deep backfill в очереди `trades`. */

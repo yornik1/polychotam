@@ -14,6 +14,7 @@ import { QueueService } from "./queue.service.js";
 import { QueueStatsService } from "./queue-stats.service.js";
 import { TradeEnrichmentProcessor } from "./trade-enrichment.processor.js";
 import { TradesProcessor } from "./trades.processor.js";
+import { UnknownTradeBackfillFeederService } from "./unknown-trade-backfill-feeder.service.js";
 import { WalletAnalyticsProcessor } from "./wallet-analytics.processor.js";
 import {
   TRADE_ENRICHMENT_QUEUE_NAME,
@@ -59,6 +60,7 @@ import {
     TradesProcessor,
     WalletAnalyticsProcessor,
     TradeEnrichmentProcessor,
+    UnknownTradeBackfillFeederService,
   ],
   exports: [BullModule, QueueService, QueueStatsService, BullJobNdjsonLogService],
 })

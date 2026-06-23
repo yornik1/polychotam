@@ -78,6 +78,29 @@ describe("TradeEnrichmentProcessor", () => {
     });
   });
 
+  it("backfill-джоб обновляет maker_address, но не шлёт ретро-алерт", async () => {
+    const findMakerAddress = vi.fn().mockResolvedValue("0xmaker");
+    const updateMakerAddress = vi.fn().mockResolvedValue(undefined);
+    const maybeSendTradeAlert = vi.fn().mockResolvedValue(true);
+
+    const processor = new TradeEnrichmentProcessor(
+      { findMakerAddress } as unknown as LiveTradeEnricherService,
+      { updateMakerAddress } as unknown as TradesService,
+      { maybeSendTradeAlert } as unknown as TradeAlertService,
+      stubNdjsonLog(),
+    );
+
+    await processor.process(
+      jobStub(TRADE_ENRICHMENT_JOB_PROCESS, {
+        ...createJob(),
+        backfill: true,
+      }) as Job<TradeEnrichmentJob>,
+    );
+
+    expect(updateMakerAddress).toHaveBeenCalledWith("ws:trade-1", "0xmaker");
+    expect(maybeSendTradeAlert).not.toHaveBeenCalled();
+  });
+
   it("бросает ошибку для ретрая, если не последняя попытка", async () => {
     const findMakerAddress = vi.fn().mockResolvedValue(null);
     const updateMakerAddress = vi.fn().mockResolvedValue(undefined);

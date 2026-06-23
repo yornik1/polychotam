@@ -65,6 +65,12 @@ export class TradeEnrichmentProcessor extends WorkerHost {
     }
 
     await this.tradesService.updateMakerAddress(job.data.tradeRecordId, makerAddress);
+
+    // Backfill старых unknown не должен порождать ретро-алерты по давно прошедшим сделкам.
+    if (job.data.backfill === true) {
+      return;
+    }
+
     await this.tradeAlertService.maybeSendTradeAlert({
       address: makerAddress,
       market: job.data.market,

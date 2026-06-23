@@ -90,31 +90,7 @@ export class UnknownTradeRepairService {
       return { scanned: 0, updated: 0, missed: 0, failed: 0 };
     }
 
-    const queryBuilder = this.tradeRepository
-      .createQueryBuilder("t")
-      .select("t.id", "id")
-      .addSelect("t.market", "market")
-      .addSelect("t.asset_id", "asset_id")
-      .addSelect("t.side", "side")
-      .addSelect("t.size", "size")
-      .addSelect("t.price", "price")
-      .addSelect("t.match_time", "match_time")
-      .where("t.status = :status", { status: "RECORDED_WS" })
-      .andWhere("(t.maker_address = :unknown OR t.maker_address = :blank)", {
-        unknown: "unknown",
-        blank: "",
-      });
-
-    if (options.order === "recent") {
-      queryBuilder.orderBy("t.match_time", "DESC");
-    } else {
-      queryBuilder.orderBy("(t.size::numeric * t.price::numeric)", "DESC");
-    }
-
-    const rows = await queryBuilder
-      .addOrderBy("t.id", "ASC")
-      .limit(limit)
-      .getRawMany<UnknownTradeRepairRow>();
+    const rows = await this.selectUnknownRows(limit, options.order);
 
     let updated = 0;
     let missed = 0;
@@ -152,6 +128,53 @@ export class UnknownTradeRepairService {
       missed,
       failed,
     };
+  }
+
+  /**
+   * Выбирает bounded-батч unknown-строк как enrichment-джобы для фонового backfill.
+   * Флаг `backfill: true` гасит ретро-алерты в processor'е. Переиспользует ту же
+   * whale-first/recent выборку, что и {@link repairBatch}.
+   */
+  async selectUnknownEnrichmentJobs(
+    options: { readonly limit?: number; readonly order?: UnknownTradeRepairOrder } = {},
+  ): Promise<TradeEnrichmentJob[]> {
+    const limit = normalizeLimit(options.limit);
+    if (limit === 0) {
+      return [];
+    }
+    const rows = await this.selectUnknownRows(limit, options.order);
+    return rows.map((row) => ({ ...this.toEnrichmentJob(row), backfill: true }));
+  }
+
+  private selectUnknownRows(
+    limit: number,
+    order: UnknownTradeRepairOrder | undefined,
+  ): Promise<UnknownTradeRepairRow[]> {
+    const queryBuilder = this.tradeRepository
+      .createQueryBuilder("t")
+      .select("t.id", "id")
+      .addSelect("t.market", "market")
+      .addSelect("t.asset_id", "asset_id")
+      .addSelect("t.side", "side")
+      .addSelect("t.size", "size")
+      .addSelect("t.price", "price")
+      .addSelect("t.match_time", "match_time")
+      .where("t.status = :status", { status: "RECORDED_WS" })
+      .andWhere("(t.maker_address = :unknown OR t.maker_address = :blank)", {
+        unknown: "unknown",
+        blank: "",
+      });
+
+    if (order === "recent") {
+      queryBuilder.orderBy("t.match_time", "DESC");
+    } else {
+      queryBuilder.orderBy("(t.size::numeric * t.price::numeric)", "DESC");
+    }
+
+    return queryBuilder
+      .addOrderBy("t.id", "ASC")
+      .limit(limit)
+      .getRawMany<UnknownTradeRepairRow>();
   }
 
   private delay(ms: number): Promise<void> {
