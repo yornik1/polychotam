@@ -35,3 +35,29 @@ lerna-debug.log*
 .omc/
 .cursor/
 .claude/
+
+# secrets and credentials
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials*.json
+secrets.json
+secrets.y*ml
+*.session
+*.session-journal
+# local data
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+# OS and local agent/IDE state
+.omx*
+.agents/
