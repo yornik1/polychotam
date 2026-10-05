@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"echo \\\"Adding GitHub MCP server...\\\"\\nclaude mcp add -e GITHUB_PERSONAL_ACCESS_TOKEN=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 github --...",
-  "error": "Exit code 1\nAdding GitHub MCP server...\nInvalid environment variable format: github, environment variables should be added as: -e KEY1=value1 -e KEY2=value2",
-  "timestamp": "2026-06-09T21:52:07.692Z",
-  "retry_count": 2
-}

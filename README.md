@@ -1,114 +1,114 @@
 # polychotam
 
-Backend на NestJS для мониторинга маркетов Polymarket: подписка на CLOB WebSocket, обогащение сделок, агрегаты по кошелькам, алерты в Telegram.
+NestJS backend that monitors Polymarket markets: subscribes to the CLOB WebSocket, enriches trades, keeps per-wallet aggregates and sends alerts to Telegram.
 
-## Стек
+## Stack
 
 - NestJS + TypeScript (`strict: true`)
-- PostgreSQL + TypeORM (миграции, `synchronize` отключён)
-- Redis + BullMQ (очереди, Bull Board UI)
-- WebSocket клиент Polymarket CLOB (`ws`)
+- PostgreSQL + TypeORM (migrations, `synchronize` disabled)
+- Redis + BullMQ (queues, Bull Board UI)
+- Polymarket CLOB WebSocket client (`ws`)
 - Telegram (`nestjs-telegraf`)
 - Vitest (unit + e2e)
 - Docker Compose
 
-## Что внутри сейчас
+## Layout
 
 ```
 src/
-  markets/        — entity маркетов, sync с Polymarket
-  trades/         — сделки (entity, обработка)
-  wallets/        — кошельки и кэш агрегатов P&L
-  queue/          — 3 BullMQ-процессора: trades, trade-enrichment, wallet-analytics
-                    + NDJSON-логирование ошибок джобов
-  polymarket/     — WS-клиент CLOB, REST-клиент, Gamma API + cron, backfill истории
-  settings/       — глобальные флаги приложения и настройки алертов
-  telegram/       — бот, форматтер сообщений, дедуп алертов
-  common/         — общие утилиты
-  migrations/     — миграции TypeORM
-  types/          — `contracts.ts` — единый источник типов проекта
+  markets/        market entity, sync with Polymarket
+  trades/         trades (entity, processing)
+  wallets/        wallets and cached P&L aggregates
+  queue/          3 BullMQ processors: trades, trade-enrichment, wallet-analytics
+                  + NDJSON logging of failed jobs
+  polymarket/     CLOB WS client, REST client, Gamma API + cron, history backfill
+  settings/       global app flags and alert settings
+  telegram/       bot, message formatter, alert dedup
+  common/         shared utilities
+  migrations/     TypeORM migrations
+  types/          contracts.ts, single source of project types
 ```
 
-## Запуск
+## Run
 
-### Через Docker Compose (полный стек: app + postgres + redis)
+### Docker Compose (full stack: app + postgres + redis)
 
 ```bash
 cp .env.example .env
-# проставить TELEGRAM_BOT_TOKEN
+# set TELEGRAM_BOT_TOKEN
 docker compose up --build
 ```
 
-Что поднимется:
-- `app` на http://localhost:3000
-- `postgres` на localhost:5432 (db `polychotam`, user/pass `postgres/postgres`)
-- `redis` на localhost:6379
+This starts:
+- `app` on http://localhost:3000
+- `postgres` on localhost:5432 (db `polychotam`, user/pass `postgres/postgres`)
+- `redis` on localhost:6379
 
-### Локально (приложение на хосте, БД и Redis в Docker)
+### Local (app on the host, database and Redis in Docker)
 
 ```bash
 cp .env.example .env
-# заменить host postgres → localhost, redis → localhost в DATABASE_URL/REDIS_URL
+# replace host postgres -> localhost, redis -> localhost in DATABASE_URL/REDIS_URL
 docker compose up -d postgres redis
 npm install
 npm run migration:run
 npm run start:dev
 ```
 
-## Миграции
+## Migrations
 
-`migration:run/revert/generate` сами включают `nest build` — отдельный `npm run build` перед ними не нужен. Datasource подключается из `dist/data-source.js`.
+`migration:run/revert/generate` run `nest build` themselves, no separate `npm run build` is needed. The datasource is loaded from `dist/data-source.js`.
 
 ```bash
-npm run migration:run                                       # применить все
-npm run migration:revert                                    # откатить последнюю
-npm run migration:generate -- src/migrations/ИмяМиграции    # diff entity → миграция
-npm run migration:create -- src/migrations/ИмяМиграции      # пустой файл
+npm run migration:run                                         # apply all
+npm run migration:revert                                      # revert the last one
+npm run migration:generate -- src/migrations/MigrationName    # entity diff -> migration
+npm run migration:create -- src/migrations/MigrationName      # empty file
 ```
 
-## Команды
+## Commands
 
 ```bash
-npm run test           # vitest run, один проход
-npm run test:watch     # vitest в watch-режиме
-npm run typecheck      # tsc --noEmit, без сборки
+npm run test           # vitest run, single pass
+npm run test:watch     # vitest in watch mode
+npm run typecheck      # tsc --noEmit, no build
 npm run lint           # eslint
 npm run build          # nest build
 npm run start:dev      # nest start --watch
 ```
 
-## Где что смотреть, когда упало
+## Where to look when something fails
 
-Сначала — три места по убыванию полезности:
+Three places first, most useful on top:
 
-1. **Bull Board UI** — http://localhost:3000/queues
-   Состояние очередей `trades`, `trade-enrichment`, `wallet-analytics`: активные, ожидающие, упавшие джобы, payload, stack trace. Главное окно для очередей.
+1. **Bull Board UI**: http://localhost:3000/queues
+   State of the `trades`, `trade-enrichment` and `wallet-analytics` queues: active, waiting and failed jobs, payload, stack trace.
 
-2. **NDJSON ошибок джобов** — `logs/bull-job-errors.ndjson`
+2. **NDJSON log of failed jobs**: `logs/bull-job-errors.ndjson`
 
    ```bash
    tail -n 50 logs/bull-job-errors.ndjson | jq .
    ```
 
-   Через docker compose файл монтируется в `./logs/` локально (см. `volumes` в [docker-compose.yml](docker-compose.yml)).
+   With docker compose the file is mounted into `./logs/` (see `volumes` in [docker-compose.yml](docker-compose.yml)).
 
-3. **Логи приложения** — `docker compose logs -f --tail 200 app`
+3. **Application logs**: `docker compose logs -f --tail 200 app`
 
-   Внимание: в [src/main.ts](src/main.ts) стоит `logger: ["error"]` — info/warn от NestJS подавлены, в логах будут только ошибки. Для глубокого дебага временно поднять уровень.
+   Note: [src/main.ts](src/main.ts) sets `logger: ["error"]`, so NestJS info/warn output is suppressed and only errors are logged. Raise the level temporarily for deeper debugging.
 
-Дальше — слой за слоем:
+Then layer by layer:
 
 - **Postgres**: `docker compose exec postgres psql -U postgres -d polychotam`
-- **Redis** / ключи BullMQ: `docker compose exec redis redis-cli` → `KEYS "bull:*"`
-- **Один тест точечно**: `npm run test -- src/queue/trade-enrichment.processor.spec.ts -t "имя теста"`
-- **Типы**: `npm run typecheck`
-- **WebSocket Polymarket**: проверить `POLYMARKET_WS_URL` — должен быть `wss://ws-subscriptions-clob.polymarket.com/ws/market` (адрес `wss://clob.polymarket.com/ws/market` отдаёт 404 при handshake).
+- **Redis** / BullMQ keys: `docker compose exec redis redis-cli` → `KEYS "bull:*"`
+- **A single test**: `npm run test -- src/queue/trade-enrichment.processor.spec.ts -t "test name"`
+- **Types**: `npm run typecheck`
+- **Polymarket WebSocket**: check `POLYMARKET_WS_URL`, it must be `wss://ws-subscriptions-clob.polymarket.com/ws/market` (`wss://clob.polymarket.com/ws/market` returns 404 on handshake).
 
-Для развёрнутого сценария дебага есть скилл [.cursor/skills/debug/SKILL.md](.cursor/skills/debug/SKILL.md).
+## Environment variables
 
-## Переменные окружения
+All of them are read through `ConfigService`. The full list with comments is in [.env.example](.env.example).
 
-Все читаются через `ConfigService`. Список и комментарии — в [.env.example](.env.example).
-
-Критичные (без них не стартует):
+Required (the app does not start without them):
 - `DATABASE_URL`, `REDIS_URL`, `TELEGRAM_BOT_TOKEN`, `POLYMARKET_WS_URL`
+
+Deployment notes are in [DEPLOY.md](DEPLOY.md).

@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"claude mcp add --transport http github https://api.githubcopilot.com/mcp/\",\"description\":\"Add GitHub MCP server via HTTP\"}",
-  "error": "Exit code 1\nMCP server github already exists in local config",
-  "timestamp": "2026-06-09T22:01:15.777Z",
-  "retry_count": 1
-}
